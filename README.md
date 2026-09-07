@@ -35,4 +35,4 @@ The overlay is a click-through layered window over the virtual desktop, taking c
 
 ## License
 
-Pony Dock is licensed under [Apache 2.0](LICENSE). Artwork stays under [CC BY-NC-SA 3.0](https://creativecommons.org/licenses/by-nc-sa/3.0/), which makes `Packs/` non-commercial and share-alike. [CREDITS.md](CREDITS.md).
+Pony Dock is licensed under the [MIT License](LICENSE). Artwork stays under [CC BY-NC-SA 3.0](https://creativecommons.org/licenses/by-nc-sa/3.0/), which makes `Packs/` non-commercial and share-alike. [CREDITS.md](CREDITS.md).
