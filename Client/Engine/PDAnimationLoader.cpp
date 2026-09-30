@@ -88,7 +88,8 @@ bool loadAnimationClip(std::string const &animPath, PDAnimationClip &outClip, st
 
 		nlohmann::json const &rect = frameValue["rect"];
 
-		if (not rect.is_array() or rect.size() != 4)
+		if (not rect.is_array() or rect.size() != 4
+			or not rect[0].is_number() or not rect[1].is_number() or not rect[2].is_number() or not rect[3].is_number())
 		{
 			outError = animPath + " has a frame with a malformed rect";
 
@@ -132,10 +133,12 @@ bool loadAnimationClip(std::string const &animPath, PDAnimationClip &outClip, st
 	float pivotX = 0.0f;
 	float pivotY = 0.0f;
 
-	if (document.contains("pivot") and document["pivot"].is_array() and document["pivot"].size() == 2)
+	nlohmann::json const &pivot = document.contains("pivot") ? document["pivot"] : nlohmann::json();
+
+	if (pivot.is_array() and pivot.size() == 2 and pivot[0].is_number() and pivot[1].is_number())
 	{
-		pivotX = document["pivot"][0].get<float>();
-		pivotY = document["pivot"][1].get<float>();
+		pivotX = pivot[0].get<float>();
+		pivotY = pivot[1].get<float>();
 	}
 
 	if (pivotX == 0.0f and pivotY == 0.0f)

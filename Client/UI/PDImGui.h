@@ -41,6 +41,7 @@ private:
 	void beginFrame();
 	void endFrame();
 
+	HINSTANCE m_instance = nullptr;
 	HWND m_window = nullptr;
 	int m_minClientWidth = 0;
 	int m_minClientHeight = 0;

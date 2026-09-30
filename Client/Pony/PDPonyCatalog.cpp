@@ -7,6 +7,13 @@
 #include <fstream>
 #include <unordered_map>
 
+static std::string stringOr(nlohmann::json const &object, char const *key, std::string const &fallback)
+{
+	auto const found = object.find(key);
+
+	return found != object.end() and found->is_string() ? found->get<std::string>() : fallback;
+}
+
 void PDPonyCatalog::load(std::string const &packsRoot)
 {
 	m_groups.clear();
@@ -37,9 +44,14 @@ void PDPonyCatalog::load(std::string const &packsRoot)
 			continue;
 		}
 
-		std::string const id = document.value("id", std::string());
-		std::string const displayName = document.value("name", id);
-		std::string const preview = document.value("preview", std::string());
+		if (not document.is_object())
+		{
+			continue;
+		}
+
+		std::string const id = stringOr(document, "id", std::string());
+		std::string const displayName = stringOr(document, "name", id);
+		std::string const preview = stringOr(document, "preview", std::string());
 
 		if (id.empty() or id == "random-pony")
 		{

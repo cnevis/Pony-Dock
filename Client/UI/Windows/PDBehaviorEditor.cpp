@@ -233,9 +233,11 @@ void PDBehaviorEditor::rebuildIndex()
 				continue;
 			}
 
+			nlohmann::json const &id = behaviorField(entry, "id");
+
 			PDBehaviorMode mode;
-			mode.id = entry.value("id", 0);
-			mode.name = entry.value("name", std::string());
+			mode.id = id.is_number_integer() ? id.get<int>() : 0;
+			mode.name = fieldString(entry, "name");
 
 			if (mode.id != 0 and modeName(mode.id) == nullptr)
 			{

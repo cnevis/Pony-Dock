@@ -19,19 +19,7 @@ bool PDOverlayWindow::initialize(HINSTANCE instance)
 		nullptr};
 
 	RegisterClassEx(&windowClass);
-
-	m_originX = GetSystemMetrics(SM_XVIRTUALSCREEN);
-	m_originY = GetSystemMetrics(SM_YVIRTUALSCREEN);
-	m_width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-	m_height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-
-	if (m_width <= 0 or m_height <= 0)
-	{
-		m_originX = 0;
-		m_originY = 0;
-		m_width = GetSystemMetrics(SM_CXSCREEN);
-		m_height = GetSystemMetrics(SM_CYSCREEN);
-	}
+	measureVirtualScreen();
 
 	DWORD const exStyle = WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_TOPMOST;
 
@@ -64,6 +52,51 @@ bool PDOverlayWindow::initialize(HINSTANCE instance)
 	}
 
 	ShowWindow(m_window, SW_SHOWNA);
+
+	return true;
+}
+
+void PDOverlayWindow::measureVirtualScreen()
+{
+	m_originX = GetSystemMetrics(SM_XVIRTUALSCREEN);
+	m_originY = GetSystemMetrics(SM_YVIRTUALSCREEN);
+	m_width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+	m_height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+
+	if (m_width <= 0 or m_height <= 0)
+	{
+		m_originX = 0;
+		m_originY = 0;
+		m_width = GetSystemMetrics(SM_CXSCREEN);
+		m_height = GetSystemMetrics(SM_CYSCREEN);
+	}
+}
+
+bool PDOverlayWindow::refreshBounds()
+{
+	if (not m_displayChanged or m_window == nullptr or m_swapChain == nullptr)
+	{
+		return false;
+	}
+
+	m_displayChanged = false;
+
+	int const oldX = m_originX;
+	int const oldY = m_originY;
+	int const oldWidth = m_width;
+	int const oldHeight = m_height;
+	measureVirtualScreen();
+
+	if (m_originX == oldX and m_originY == oldY and m_width == oldWidth and m_height == oldHeight)
+	{
+		return true;
+	}
+
+	SetWindowPos(m_window, HWND_TOPMOST, m_originX, m_originY, m_width, m_height, SWP_NOACTIVATE);
+
+	destroyRenderTarget();
+	m_swapChain->ResizeBuffers(0, static_cast<UINT>(m_width), static_cast<UINT>(m_height), DXGI_FORMAT_UNKNOWN, 0);
+	createRenderTarget();
 
 	return true;
 }
@@ -223,6 +256,13 @@ LRESULT PDOverlayWindow::handleMessage(HWND window, UINT message, WPARAM wParam,
 			ReleaseCapture();
 
 			return 0;
+		}
+
+		case WM_DISPLAYCHANGE:
+		{
+			m_displayChanged = true;
+
+			break;
 		}
 
 		case WM_DESTROY:

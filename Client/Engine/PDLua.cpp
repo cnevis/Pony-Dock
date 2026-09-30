@@ -549,10 +549,24 @@ void PDLua::unloadScript(std::string const &scriptPath)
 
 void PDLua::reload()
 {
+	std::vector<std::string> paths;
+
+	for (auto const &entry : m_modules)
+	{
+		paths.push_back(entry.first);
+	}
+
+	std::sort(paths.begin(), paths.end());
+
 	m_modules.clear();
 	m_buttonHandlers.clear();
 	m_settings->clearAllDeclarations();
 	forgetPackage(std::string());
+
+	for (std::string const &path : paths)
+	{
+		module(path);
+	}
 }
 
 std::string PDLua::modulePath(std::string const &name) const

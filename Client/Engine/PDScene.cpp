@@ -1,6 +1,7 @@
 #include <Engine/PDScene.h>
 
 #include <cmath>
+#include <filesystem>
 
 PDScene::~PDScene()
 {
@@ -186,6 +187,31 @@ entt::entity PDScene::resolve(std::uint32_t entityId) const
 	entt::entity const entity = static_cast<entt::entity>(entityId);
 
 	return m_registry.valid(entity) ? entity : entt::null;
+}
+
+void PDScene::unloadScript(std::string const &scriptPath)
+{
+	m_lua.unloadScript(scriptPath);
+
+	std::string const normalized = std::filesystem::path(scriptPath).lexically_normal().string();
+	auto view = m_registry.view<PDScript>();
+
+	for (auto const entity : view)
+	{
+		std::unordered_map<std::string, PDScript::Module> &modules = view.get<PDScript>(entity).modules;
+
+		for (auto iterator = modules.begin(); iterator != modules.end();)
+		{
+			if (std::filesystem::path(iterator->first).lexically_normal().string() == normalized)
+			{
+				iterator = modules.erase(iterator);
+			}
+			else
+			{
+				++iterator;
+			}
+		}
+	}
 }
 
 void PDScene::reloadScripts()

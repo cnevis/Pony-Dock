@@ -67,6 +67,8 @@ void PDMainApplication::runOverlay(HINSTANCE instance)
 	if (not m_spriteRenderer.initialize(m_overlay.device()))
 	{
 		m_diagnostics.write("Sprite renderer failed to initialize");
+		m_spriteRenderer.shutdown();
+		m_overlay.shutdown();
 
 		return;
 	}
@@ -85,6 +87,12 @@ void PDMainApplication::runOverlay(HINSTANCE instance)
 	while (m_overlayRunning)
 	{
 		m_overlay.pumpMessages();
+
+		if (m_overlay.refreshBounds())
+		{
+			m_monitors = enumerateMonitors();
+			m_diagnostics.write("Displays changed, overlay now " + std::to_string(m_overlay.width()) + "x" + std::to_string(m_overlay.height()) + " over " + std::to_string(m_monitors.size()) + " displays");
+		}
 
 		if (m_pendingReload.exchange(false))
 		{

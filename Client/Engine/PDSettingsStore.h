@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <mutex>
 #include <shared_mutex>
 #include <string>
 #include <unordered_map>

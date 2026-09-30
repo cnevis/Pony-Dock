@@ -53,10 +53,7 @@ public:
 		return m_lua.loadScript(scriptPath);
 	}
 
-	void unloadScript(std::string const &scriptPath)
-	{
-		m_lua.unloadScript(scriptPath);
-	}
+	void unloadScript(std::string const &scriptPath);
 
 	bool pressSettingsButton(std::string const &moduleKey, std::string const &settingId)
 	{
