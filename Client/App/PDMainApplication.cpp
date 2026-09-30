@@ -67,12 +67,15 @@ void PDMainApplication::runOverlay(HINSTANCE instance)
 	if (not m_spriteRenderer.initialize(m_overlay.device()))
 	{
 		m_diagnostics.write("Sprite renderer failed to initialize");
+		m_spriteRenderer.shutdown();
+		m_overlay.shutdown();
 
 		return;
 	}
 
 	m_monitors = enumerateMonitors();
 	m_scene.initialize(m_overlay.device(), m_diagnostics, m_settings, scriptsRoot());
+	m_ponies.initialize(m_scene, m_diagnostics);
 	m_scene.loadScript(coreScriptPath());
 
 	m_diagnostics.write("Found " + std::to_string(m_monitors.size()) + " displays");
@@ -80,10 +83,17 @@ void PDMainApplication::runOverlay(HINSTANCE instance)
 	m_diagnostics.write("Overlay ready at " + std::to_string(m_overlay.width()) + "x" + std::to_string(m_overlay.height()));
 
 	std::chrono::steady_clock::time_point lastTick = std::chrono::steady_clock::now();
+	bool idle = false;
 
 	while (m_overlayRunning)
 	{
 		m_overlay.pumpMessages();
+
+		if (m_overlay.refreshBounds())
+		{
+			m_monitors = enumerateMonitors();
+			m_diagnostics.write("Displays changed, overlay now " + std::to_string(m_overlay.width()) + "x" + std::to_string(m_overlay.height()) + " over " + std::to_string(m_monitors.size()) + " displays");
+		}
 
 		if (m_pendingReload.exchange(false))
 		{
@@ -94,6 +104,18 @@ void PDMainApplication::runOverlay(HINSTANCE instance)
 		applyPendingScripts();
 		applyPendingPacks();
 		applyPendingScene();
+
+		if (idle and m_scene.empty())
+		{
+			m_overlay.pollMouse();
+			applyPendingButtons();
+			publishLoadedScripts();
+
+			MsgWaitForMultipleObjects(0, nullptr, FALSE, IdleWaitMilliseconds, QS_ALLINPUT);
+			lastTick = std::chrono::steady_clock::now();
+
+			continue;
+		}
 
 		std::chrono::steady_clock::time_point const now = std::chrono::steady_clock::now();
 		float const elapsedSeconds = std::chrono::duration<float>(now - lastTick).count();
@@ -106,20 +128,27 @@ void PDMainApplication::runOverlay(HINSTANCE instance)
 
 		m_scene.tick(deltaSeconds, m_overlay.width(), m_overlay.height(), walkableRects());
 		applyPendingButtons();
-
-		{
-			std::lock_guard<std::mutex> const lock(m_scriptsMutex);
-			m_loadedScripts = m_scene.loadedScripts();
-		}
+		publishLoadedScripts();
 
 		m_overlay.beginFrame();
 		m_spriteRenderer.begin(m_overlay.context(), m_overlay.width(), m_overlay.height());
 		m_scene.draw(m_spriteRenderer);
+		m_spriteRenderer.end();
 		m_overlay.endFrame();
+
+		idle = m_scene.empty();
 	}
 
 	m_spriteRenderer.shutdown();
 	m_overlay.shutdown();
+}
+
+void PDMainApplication::publishLoadedScripts()
+{
+	std::vector<std::string> loaded = m_scene.loadedScripts();
+
+	std::lock_guard<std::mutex> const lock(m_scriptsMutex);
+	m_loadedScripts = std::move(loaded);
 }
 
 std::vector<PDRect> PDMainApplication::walkableRects() const
@@ -183,7 +212,7 @@ void PDMainApplication::applyPendingScene()
 	{
 		for (int i = 0; i < entry.quantity; i += 1)
 		{
-			m_scene.spawnEntity(entry.packPath, x, 0.0f);
+			m_ponies.spawn(entry.packPath, x, 0.0f);
 			x += 120.0f;
 		}
 	}
@@ -263,7 +292,7 @@ void PDMainApplication::applyPendingPacks()
 
 	for (std::string const &path : paths)
 	{
-		m_scene.reloadPack(path);
+		m_ponies.reloadPack(path);
 	}
 }
 

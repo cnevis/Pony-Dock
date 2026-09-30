@@ -27,6 +27,7 @@ bool PDImGui::initialize(
 	int minHeight)
 {
 	s_instance = this;
+	m_instance = instance;
 	m_minClientWidth = minWidth;
 	m_minClientHeight = minHeight;
 
@@ -102,9 +103,12 @@ void PDImGui::shutdown()
 
 	destroyDevice();
 
-	HINSTANCE const instance = reinterpret_cast<HINSTANCE>(GetWindowLongPtr(m_window, GWLP_HINSTANCE));
-	DestroyWindow(m_window);
-	UnregisterClass("PonyDockClassName", instance);
+	if (IsWindow(m_window))
+	{
+		DestroyWindow(m_window);
+	}
+
+	UnregisterClass("PonyDockClassName", m_instance);
 
 	m_window = nullptr;
 	s_instance = nullptr;
@@ -155,7 +159,7 @@ void PDImGui::endFrame()
 		ImGui::RenderPlatformWindowsDefault();
 	}
 
-	m_swapChain->Present(1, 0);
+	m_occluded = m_swapChain->Present(1, 0) == DXGI_STATUS_OCCLUDED;
 }
 
 bool PDImGui::createDevice()
@@ -243,6 +247,15 @@ void PDImGui::renderFrame()
 		return;
 	}
 
+	if (IsIconic(m_window) or (m_occluded and m_swapChain->Present(0, DXGI_PRESENT_TEST) == DXGI_STATUS_OCCLUDED))
+	{
+		Sleep(OccludedSleepMilliseconds);
+
+		return;
+	}
+
+	m_occluded = false;
+
 	beginFrame();
 	m_frameCallback();
 	endFrame();
@@ -293,6 +306,16 @@ LRESULT PDImGui::handleMessage(HWND window, UINT message, WPARAM wParam, LPARAM 
 			}
 
 			return 0;
+		}
+
+		case WM_SYSCOMMAND:
+		{
+			if ((wParam & 0xfff0) == SC_KEYMENU)
+			{
+				return 0;
+			}
+
+			break;
 		}
 
 		case WM_DESTROY:

@@ -236,3 +236,18 @@ PDTexture const *PDTextCache::texture(std::string const &text)
 
 	return &inserted.first->second;
 }
+
+void PDTextCache::retain(std::unordered_set<std::string> const &texts)
+{
+	for (auto iterator = m_textures.begin(); iterator != m_textures.end();)
+	{
+		if (texts.find(iterator->first) == texts.end())
+		{
+			iterator = m_textures.erase(iterator);
+		}
+		else
+		{
+			++iterator;
+		}
+	}
+}

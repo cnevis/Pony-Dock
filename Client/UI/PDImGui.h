@@ -29,6 +29,8 @@ public:
 	}
 
 private:
+	static constexpr DWORD OccludedSleepMilliseconds = 16;
+
 	static PDImGui *s_instance;
 
 	static LRESULT CALLBACK staticWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
@@ -41,6 +43,7 @@ private:
 	void beginFrame();
 	void endFrame();
 
+	HINSTANCE m_instance = nullptr;
 	HWND m_window = nullptr;
 	int m_minClientWidth = 0;
 	int m_minClientHeight = 0;
@@ -49,6 +52,8 @@ private:
 	ID3D11DeviceContext *m_deviceContext = nullptr;
 	IDXGISwapChain *m_swapChain = nullptr;
 	ID3D11RenderTargetView *m_renderTargetView = nullptr;
+
+	bool m_occluded = false;
 
 	std::function<void()> m_frameCallback;
 };

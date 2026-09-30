@@ -1,14 +1,10 @@
 #pragma once
 
+#include <Engine/PDEntityKind.h>
+
 #include <string>
 #include <unordered_map>
 #include <vector>
-
-struct PDPonyAnimationRef
-{
-	std::string left;
-	std::string right;
-};
 
 struct PDPonyBehaviorData
 {
@@ -54,7 +50,7 @@ struct PDPonyPackData
 	std::string packPath;
 	std::string previewPath;
 
-	std::unordered_map<std::string, PDPonyAnimationRef> animations;
+	std::unordered_map<std::string, PDAnimationRef> animations;
 	std::vector<PDPonyBehaviorData> behaviors;
 	std::vector<PDPonyBehaviorGroup> groups;
 	std::vector<PDPonyInteractionData> interactions;

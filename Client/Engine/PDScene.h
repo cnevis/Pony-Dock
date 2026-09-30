@@ -1,18 +1,18 @@
 #pragma once
 
 #include <Engine/Components/PDAnimation.h>
+#include <Engine/Components/PDKind.h>
 #include <Engine/Components/PDLabel.h>
-#include <Engine/Components/PDPack.h>
 #include <Engine/Components/PDPosition.h>
 #include <Engine/Components/PDScript.h>
 #include <Engine/Components/PDSprite.h>
 #include <Engine/PDAnimationCache.h>
 #include <Engine/PDDiagnostics.h>
+#include <Engine/PDEntityKind.h>
 #include <Engine/PDLua.h>
 #include <Engine/PDSpriteRenderer.h>
 #include <Engine/PDTextCache.h>
 #include <Engine/PDTextureCache.h>
-#include <Library/PDPonyPackData.h>
 
 #include <d3d11.h>
 
@@ -32,10 +32,16 @@ public:
 		PDSettingsStore &settings,
 		std::string const &scriptsRoot);
 
-	void spawnEntity(std::string const &packPath, float x, float y);
+	entt::entity spawn(PDEntityKind const &kind, float x, float y);
+	sol::table self(entt::entity entity) const;
+	void restartScripts(PDEntityKind const &kind);
 	void clear();
 	void reloadScripts();
-	void reloadPack(std::string const &packPath);
+
+	PDLua &lua()
+	{
+		return m_lua;
+	}
 
 	std::vector<std::string> loadedScripts() const
 	{
@@ -47,14 +53,16 @@ public:
 		return m_lua.loadScript(scriptPath);
 	}
 
-	void unloadScript(std::string const &scriptPath)
-	{
-		m_lua.unloadScript(scriptPath);
-	}
+	void unloadScript(std::string const &scriptPath);
 
 	bool pressSettingsButton(std::string const &moduleKey, std::string const &settingId)
 	{
 		return m_lua.pressButton(moduleKey, settingId);
+	}
+
+	bool empty() const
+	{
+		return m_registry.view<PDPosition const>().empty();
 	}
 
 	void updateMouse(int x, int y, bool pressed, bool released);
@@ -69,6 +77,7 @@ public:
 
 private:
 	static constexpr int MaxScriptErrors = 3;
+	static constexpr std::size_t MaxCachedLabels = 256;
 
 	struct Invite
 	{
@@ -76,8 +85,8 @@ private:
 		std::string behavior;
 	};
 
-	PDPonyPackData const *pack(std::string const &packPath);
 	void advanceAnimations(float deltaSeconds);
+	void trimLabels();
 	void writeSpriteFromAnimation(PDAnimation const &animation, PDSprite &sprite) const;
 
 	bool playAnimation(entt::entity entity, std::string const &name, bool loop, bool restart);
@@ -90,7 +99,6 @@ private:
 	PDTextureCache m_textures;
 	PDTextCache m_labels;
 	PDAnimationCache m_animations;
-	std::unordered_map<std::string, PDPonyPackData> m_packs;
 	PDLua m_lua;
 	entt::registry m_registry;
 	std::unordered_map<std::uint32_t, Invite> m_invites;

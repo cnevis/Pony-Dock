@@ -1,13 +1,14 @@
 #pragma once
 
 #include <Engine/PDDiagnostics.h>
+#include <Engine/PDMonitor.h>
 #include <Engine/PDOverlayWindow.h>
 #include <Engine/PDScene.h>
+#include <Engine/PDSettingsStore.h>
 #include <Engine/PDSpriteRenderer.h>
-#include <Library/PDMonitor.h>
-#include <Library/PDSceneEntry.h>
-#include <Library/PDSettingsStore.h>
 #include <Math/PDRect.h>
+#include <Pony/PDPonyWorld.h>
+#include <Pony/PDSceneEntry.h>
 #include <UI/PDImGui.h>
 #include <UI/Windows/PDMainWindow.h>
 
@@ -52,6 +53,7 @@ public:
 
 private:
 	static constexpr float MaxDeltaSeconds = 0.1f;
+	static constexpr DWORD IdleWaitMilliseconds = 50;
 	static constexpr std::size_t MaxPendingButtons = 32;
 
 	struct ScriptCommand
@@ -72,6 +74,7 @@ private:
 	void applyPendingScripts();
 	void applyPendingButtons();
 	void applyPendingPacks();
+	void publishLoadedScripts();
 
 	PDDiagnostics m_diagnostics;
 	PDSettingsStore m_settings;
@@ -81,6 +84,7 @@ private:
 	PDOverlayWindow m_overlay;
 	PDSpriteRenderer m_spriteRenderer;
 	PDScene m_scene;
+	PDPonyWorld m_ponies;
 	std::vector<PDMonitor> m_monitors;
 
 	std::thread m_overlayThread;

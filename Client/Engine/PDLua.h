@@ -1,7 +1,6 @@
 #pragma once
 
-#include <Library/PDPonyPackData.h>
-#include <Library/PDSettingsStore.h>
+#include <Engine/PDSettingsStore.h>
 #include <Math/PDRect.h>
 
 #include <sol/sol.hpp>
@@ -17,7 +16,7 @@ class PDDiagnostics;
 struct PDNeighbor
 {
 	std::uint32_t id = 0;
-	std::string pack;
+	std::string kind;
 
 	float x = 0.0f;
 	float y = 0.0f;
@@ -41,10 +40,13 @@ public:
 
 	void beginFrame(float boundsWidth, float boundsHeight, std::vector<PDRect> const &monitors);
 
-	sol::table createSelf(std::uint32_t entityId, std::string const &packId);
+	sol::state &state()
+	{
+		return m_lua;
+	}
+
+	sol::table createSelf(std::uint32_t entityId, std::string const &kindId);
 	sol::table createInvite(std::uint32_t from, std::string const &behavior);
-	sol::table packTable(PDPonyPackData const &pack);
-	void refreshPackTable(PDPonyPackData const &pack);
 
 	bool pressButton(std::string const &moduleKey, std::string const &settingId);
 
@@ -69,15 +71,6 @@ private:
 		bool failed = false;
 	};
 
-	struct PackTables
-	{
-		sol::table proxy;
-		sol::table meta;
-		sol::table real;
-	};
-
-	sol::table buildPackReal(PDPonyPackData const &pack);
-
 	Module *module(std::string const &scriptPath);
 	bool report(std::string const &scriptPath, sol::protected_function_result const &result);
 	std::string modulePath(std::string const &name) const;
@@ -85,8 +78,8 @@ private:
 
 	sol::table createSettingsTable(std::string const &moduleKey);
 	bool declareSetting(std::string const &moduleKey, PDSettingDeclaration declaration);
-	PDSettingValue settingValue(std::string const &moduleKey, std::string const &packId, std::string const &id) const;
-	sol::object settingObject(sol::this_state state, std::string const &moduleKey, std::string const &packId, std::string const &id) const;
+	PDSettingValue settingValue(std::string const &moduleKey, std::string const &kindId, std::string const &id) const;
+	sol::object settingObject(sol::this_state state, std::string const &moduleKey, std::string const &kindId, std::string const &id) const;
 	void forgetButtons(std::string const &moduleKey);
 
 	sol::state m_lua;
@@ -103,7 +96,7 @@ private:
 	InviteHandler m_inviteHandler;
 
 	std::unordered_map<std::string, Module> m_modules;
-	std::unordered_map<std::string, PackTables> m_packTables;
+	mutable std::unordered_map<std::string, std::string> m_modulePaths;
 
 	PDSettingsStore *m_settings = nullptr;
 	PDSettingsSnapshot m_snapshot;

@@ -13,7 +13,7 @@ local function partner(self, interaction)
 
 		if not other.busy then
 			for j = 1, #interaction.targets do
-				if interaction.targets[j] == other.pack then
+				if interaction.targets[j] == other.kind then
 					return other
 				end
 			end

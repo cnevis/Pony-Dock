@@ -19,6 +19,7 @@ public:
 
 	PDOverlayMouse pollMouse();
 	void setInteractive(bool interactive);
+	bool refreshBounds();
 	void shutdown();
 
 	void pumpMessages();
@@ -60,6 +61,7 @@ private:
 	static LRESULT CALLBACK staticWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
 	LRESULT handleMessage(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
 
+	void measureVirtualScreen();
 	bool createDevice();
 	void destroyDevice();
 	void createRenderTarget();
@@ -72,6 +74,7 @@ private:
 	int m_height = 0;
 
 	bool m_interactive = false;
+	bool m_displayChanged = false;
 	bool m_mouseDown = false;
 	bool m_mousePressed = false;
 	bool m_mouseReleased = false;
