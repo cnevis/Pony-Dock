@@ -1,18 +1,18 @@
 #pragma once
 
 #include <Engine/Components/PDAnimation.h>
+#include <Engine/Components/PDKind.h>
 #include <Engine/Components/PDLabel.h>
-#include <Engine/Components/PDPack.h>
 #include <Engine/Components/PDPosition.h>
 #include <Engine/Components/PDScript.h>
 #include <Engine/Components/PDSprite.h>
 #include <Engine/PDAnimationCache.h>
 #include <Engine/PDDiagnostics.h>
+#include <Engine/PDEntityKind.h>
 #include <Engine/PDLua.h>
 #include <Engine/PDSpriteRenderer.h>
 #include <Engine/PDTextCache.h>
 #include <Engine/PDTextureCache.h>
-#include <Library/PDPonyPackData.h>
 
 #include <d3d11.h>
 
@@ -32,10 +32,16 @@ public:
 		PDSettingsStore &settings,
 		std::string const &scriptsRoot);
 
-	void spawnEntity(std::string const &packPath, float x, float y);
+	entt::entity spawn(PDEntityKind const &kind, float x, float y);
+	sol::table self(entt::entity entity) const;
+	void restartScripts(PDEntityKind const &kind);
 	void clear();
 	void reloadScripts();
-	void reloadPack(std::string const &packPath);
+
+	PDLua &lua()
+	{
+		return m_lua;
+	}
 
 	std::vector<std::string> loadedScripts() const
 	{
@@ -76,7 +82,6 @@ private:
 		std::string behavior;
 	};
 
-	PDPonyPackData const *pack(std::string const &packPath);
 	void advanceAnimations(float deltaSeconds);
 	void writeSpriteFromAnimation(PDAnimation const &animation, PDSprite &sprite) const;
 
@@ -90,7 +95,6 @@ private:
 	PDTextureCache m_textures;
 	PDTextCache m_labels;
 	PDAnimationCache m_animations;
-	std::unordered_map<std::string, PDPonyPackData> m_packs;
 	PDLua m_lua;
 	entt::registry m_registry;
 	std::unordered_map<std::uint32_t, Invite> m_invites;

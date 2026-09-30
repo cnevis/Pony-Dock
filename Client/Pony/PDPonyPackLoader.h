@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Library/PDPonyPackData.h>
+#include <Pony/PDPonyPackData.h>
 
 #include <string>
 

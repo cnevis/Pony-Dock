@@ -4,7 +4,7 @@
 #include <Core/PDString.h>
 #include <Engine/PDAnimationLoader.h>
 #include <Engine/PDDiagnostics.h>
-#include <Library/PDPonyPackOverride.h>
+#include <Pony/PDPonyPackOverride.h>
 #include <UI/PDImGui.h>
 #include <UI/PDTheme.h>
 #include <UI/PDWidgets.h>

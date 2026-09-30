@@ -1,9 +1,6 @@
 #include <Engine/PDScene.h>
 
-#include <Library/PDPonyPackLoader.h>
-
 #include <cmath>
-#include <filesystem>
 
 PDScene::~PDScene()
 {
@@ -43,43 +40,19 @@ void PDScene::initialize(
 	});
 }
 
-void PDScene::reloadPack(std::string const &packPath)
+void PDScene::restartScripts(PDEntityKind const &kind)
 {
-	std::string const key = std::filesystem::path(packPath).lexically_normal().string();
-	auto const existing = m_packs.find(key);
-
-	if (existing == m_packs.end())
-	{
-		return;
-	}
-
-	PDPonyPackData loaded;
-	std::string error;
-
-	if (not loadPonyPack(key, loaded, error))
-	{
-		m_diagnostics->write("Pack reload failed: " + error);
-
-		return;
-	}
-
-	existing->second = std::move(loaded);
-	m_lua.refreshPackTable(existing->second);
-
-	auto view = m_registry.view<PDPack const, PDScript>();
+	auto view = m_registry.view<PDKind const, PDScript>();
 
 	for (auto const entity : view)
 	{
-		if (view.get<PDPack const>(entity).data != &existing->second)
+		if (view.get<PDKind const>(entity).kind != &kind)
 		{
 			continue;
 		}
 
-		PDScript &script = view.get<PDScript>(entity);
-		script.modules.clear();
+		view.get<PDScript>(entity).modules.clear();
 	}
-
-	m_diagnostics->write("Reloaded pack " + existing->second.id);
 }
 
 void PDScene::updateMouse(int x, int y, bool pressed, bool released)
@@ -154,13 +127,13 @@ std::vector<PDNeighbor> PDScene::neighbors(std::uint32_t entityId, float radius)
 	float const originX = origin.x - originSprite.offsetX + originSprite.width * 0.5f;
 	float const originY = origin.y - originSprite.offsetY + originSprite.height * 0.5f;
 
-	auto view = m_registry.view<PDPosition const, PDSprite const, PDPack const, PDScript const>();
+	auto view = m_registry.view<PDPosition const, PDSprite const, PDKind const, PDScript const>();
 
 	for (auto const entity : view)
 	{
-		PDPack const &packComponent = view.get<PDPack const>(entity);
+		PDKind const &kindComponent = view.get<PDKind const>(entity);
 
-		if (entity == source or packComponent.data == nullptr)
+		if (entity == source or kindComponent.kind == nullptr)
 		{
 			continue;
 		}
@@ -177,7 +150,7 @@ std::vector<PDNeighbor> PDScene::neighbors(std::uint32_t entityId, float radius)
 
 		PDNeighbor neighbor;
 		neighbor.id = static_cast<std::uint32_t>(entity);
-		neighbor.pack = packComponent.data->id;
+		neighbor.kind = kindComponent.kind->id;
 		neighbor.x = x;
 		neighbor.y = y;
 		neighbor.busy = view.get<PDScript const>(entity).busy;
@@ -228,56 +201,33 @@ void PDScene::reloadScripts()
 	}
 }
 
-PDPonyPackData const *PDScene::pack(std::string const &packPath)
+entt::entity PDScene::spawn(PDEntityKind const &kind, float x, float y)
 {
-	std::string const key = std::filesystem::path(packPath).lexically_normal().string();
-
-	auto const existing = m_packs.find(key);
-
-	if (existing != m_packs.end())
-	{
-		return existing->second.valid ? &existing->second : nullptr;
-	}
-
-	PDPonyPackData loaded;
-	std::string error;
-
-	if (not loadPonyPack(key, loaded, error))
-	{
-		m_diagnostics->writeOnce(key, "Pack load failed: " + error);
-		m_packs.emplace(key, PDPonyPackData());
-
-		return nullptr;
-	}
-
-	m_diagnostics->write("Loaded pack " + loaded.id + " (" + std::to_string(loaded.animations.size()) + " animations, " + std::to_string(loaded.behaviors.size()) + " behaviors)");
-
-	return &m_packs.emplace(key, std::move(loaded)).first->second;
-}
-
-void PDScene::spawnEntity(std::string const &packPath, float x, float y)
-{
-	PDPonyPackData const *const packData = pack(packPath);
-
-	if (packData == nullptr)
-	{
-		return;
-	}
-
-	PDTexture const *const preview = m_textures.texture(packData->previewPath);
+	PDTexture const *const preview = kind.previewPath.empty() ? nullptr : m_textures.texture(kind.previewPath);
 
 	entt::entity const entity = m_registry.create();
 	m_registry.emplace<PDPosition>(entity, x, y);
 	m_registry.emplace<PDSprite>(entity, preview, 96.0f, 96.0f);
-	m_registry.emplace<PDPack>(entity, packData);
+	m_registry.emplace<PDKind>(entity, &kind);
 	m_registry.emplace<PDAnimation>(entity);
 	m_registry.emplace<PDLabel>(entity);
 
 	PDScript &script = m_registry.emplace<PDScript>(entity);
-	script.self = m_lua.createSelf(static_cast<std::uint32_t>(entity), packData->id);
-	script.self["pack"] = m_lua.packTable(*packData);
+	script.self = m_lua.createSelf(static_cast<std::uint32_t>(entity), kind.id);
 
-	playAnimation(entity, packData->behaviors.front().animation, true, true);
+	if (not kind.initialAnimation.empty())
+	{
+		playAnimation(entity, kind.initialAnimation, true, true);
+	}
+
+	return entity;
+}
+
+sol::table PDScene::self(entt::entity entity) const
+{
+	PDScript const *const script = m_registry.valid(entity) ? m_registry.try_get<PDScript>(entity) : nullptr;
+
+	return script != nullptr ? script->self : sol::table();
 }
 
 bool PDScene::playAnimation(entt::entity entity, std::string const &name, bool loop, bool restart)
@@ -287,21 +237,21 @@ bool PDScene::playAnimation(entt::entity entity, std::string const &name, bool l
 		return false;
 	}
 
-	PDPack const *const packComponent = m_registry.try_get<PDPack>(entity);
+	PDKind const *const kindComponent = m_registry.try_get<PDKind>(entity);
 	PDAnimation *const animation = m_registry.try_get<PDAnimation>(entity);
 
-	if (packComponent == nullptr or packComponent->data == nullptr or animation == nullptr)
+	if (kindComponent == nullptr or kindComponent->kind == nullptr or animation == nullptr)
 	{
 		return false;
 	}
 
-	auto const found = packComponent->data->animations.find(name);
+	auto const found = kindComponent->kind->animations.find(name);
 
-	if (found == packComponent->data->animations.end())
+	if (found == kindComponent->kind->animations.end())
 	{
 		m_diagnostics->writeOnce(
-			packComponent->data->id + "/" + name,
-			"Unknown animation '" + name + "' in pack " + packComponent->data->id);
+			kindComponent->kind->id + "/" + name,
+			"Unknown animation '" + name + "' in " + kindComponent->kind->id);
 
 		return false;
 	}
@@ -352,17 +302,17 @@ void PDScene::setFacing(entt::entity entity, bool facingRight)
 		return;
 	}
 
-	PDPack const *const packComponent = m_registry.try_get<PDPack>(entity);
+	PDKind const *const kindComponent = m_registry.try_get<PDKind>(entity);
 	animation->facingRight = facingRight;
 
-	if (packComponent == nullptr or packComponent->data == nullptr or animation->name.empty())
+	if (kindComponent == nullptr or kindComponent->kind == nullptr or animation->name.empty())
 	{
 		return;
 	}
 
-	auto const found = packComponent->data->animations.find(animation->name);
+	auto const found = kindComponent->kind->animations.find(animation->name);
 
-	if (found == packComponent->data->animations.end())
+	if (found == kindComponent->kind->animations.end())
 	{
 		return;
 	}

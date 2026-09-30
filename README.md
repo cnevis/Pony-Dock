@@ -16,7 +16,9 @@ Modules declare their own controls, which appear in the Modules view:
 settings.slider("speed", "Speed multiplier", 1.0, 0.1, 4.0)
 ```
 
-`self:setting("speed")` reads it back, globally or per pack. Script errors land in the Log view with a traceback instead of killing the app, and scripts reload without a restart. `core.lua` is the default module: weighted pick, linked behaviors, bounce at the edge, etc.
+`self:setting("speed")` reads it back, globally or per pack. `self:nearby(radius)` lists other entities around, each with its `id`, `kind` (the pack id for ponies), position and `busy` flag, and `self:invite(id, behavior)` asks one of them to join in. Script errors land in the Log view with a traceback instead of killing the app, and scripts reload without a restart. `core.lua` is the default module: weighted pick, linked behaviors, bounce at the edge, etc.
+
+The C++ side is split in two. `Client/Engine/` is the generic part: entities, sprites, animations, the overlay, the Lua host and module settings. It knows nothing about ponies; an entity is spawned from a `PDEntityKind`, which is just an id, a preview image and named left/right animations. `Client/Pony/` is the Desktop Ponies part: it reads `pony.json` packs and their overrides, turns each pack into a kind and hands scripts the read-only `self.pack` table. `App/` and `UI/` sit on top of both.
 
 ### Building
 

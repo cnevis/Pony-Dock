@@ -73,6 +73,7 @@ void PDMainApplication::runOverlay(HINSTANCE instance)
 
 	m_monitors = enumerateMonitors();
 	m_scene.initialize(m_overlay.device(), m_diagnostics, m_settings, scriptsRoot());
+	m_ponies.initialize(m_scene, m_diagnostics);
 	m_scene.loadScript(coreScriptPath());
 
 	m_diagnostics.write("Found " + std::to_string(m_monitors.size()) + " displays");
@@ -183,7 +184,7 @@ void PDMainApplication::applyPendingScene()
 	{
 		for (int i = 0; i < entry.quantity; i += 1)
 		{
-			m_scene.spawnEntity(entry.packPath, x, 0.0f);
+			m_ponies.spawn(entry.packPath, x, 0.0f);
 			x += 120.0f;
 		}
 	}
@@ -263,7 +264,7 @@ void PDMainApplication::applyPendingPacks()
 
 	for (std::string const &path : paths)
 	{
-		m_scene.reloadPack(path);
+		m_ponies.reloadPack(path);
 	}
 }
 

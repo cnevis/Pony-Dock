@@ -1,4 +1,4 @@
-#include <Library/PDSettingsStore.h>
+#include <Engine/PDSettingsStore.h>
 
 #include <windows.h>
 
@@ -262,18 +262,18 @@ bool PDSettingsStore::declare(std::string const &key, PDSettingDeclaration decla
 	{
 		module.values.erase(declaration.id);
 
-		for (std::pair<std::string const, PDSettingValues> &pack : module.packs)
+		for (std::pair<std::string const, PDSettingValues> &kind : module.kinds)
 		{
-			pack.second.erase(declaration.id);
+			kind.second.erase(declaration.id);
 		}
 	}
 	else
 	{
 		reconcile(declaration, module.values);
 
-		for (std::pair<std::string const, PDSettingValues> &pack : module.packs)
+		for (std::pair<std::string const, PDSettingValues> &kind : module.kinds)
 		{
-			reconcile(declaration, pack.second);
+			reconcile(declaration, kind.second);
 		}
 	}
 
@@ -343,7 +343,7 @@ bool PDSettingsStore::refresh(PDSettingsSnapshot &snapshot) const
 	{
 		PDSettingsModuleSnapshot &target = snapshot.modules[entry.first];
 		target.values = entry.second.values;
-		target.packs = entry.second.packs;
+		target.kinds = entry.second.kinds;
 
 		for (PDSettingDeclaration const &declaration : entry.second.declarations)
 		{
@@ -377,7 +377,7 @@ std::vector<PDSettingDeclaration> PDSettingsStore::declarations(std::string cons
 	return module->declarations;
 }
 
-PDSettingValue PDSettingsStore::value(std::string const &key, std::string const &packId, std::string const &id) const
+PDSettingValue PDSettingsStore::value(std::string const &key, std::string const &kindId, std::string const &id) const
 {
 	std::shared_lock<std::shared_mutex> const lock(m_mutex);
 	Module const *const module = findModule(key);
@@ -387,15 +387,15 @@ PDSettingValue PDSettingsStore::value(std::string const &key, std::string const 
 		return {};
 	}
 
-	if (not packId.empty())
+	if (not kindId.empty())
 	{
-		auto const pack = module->packs.find(packId);
+		auto const kind = module->kinds.find(kindId);
 
-		if (pack != module->packs.end())
+		if (kind != module->kinds.end())
 		{
-			auto const override = pack->second.find(id);
+			auto const override = kind->second.find(id);
 
-			if (override != pack->second.end())
+			if (override != kind->second.end())
 			{
 				return override->second;
 			}
@@ -420,9 +420,9 @@ PDSettingValue PDSettingsStore::value(std::string const &key, std::string const 
 	return {};
 }
 
-bool PDSettingsStore::hasOverride(std::string const &key, std::string const &packId, std::string const &id) const
+bool PDSettingsStore::hasOverride(std::string const &key, std::string const &kindId, std::string const &id) const
 {
-	if (packId.empty())
+	if (kindId.empty())
 	{
 		return false;
 	}
@@ -435,14 +435,14 @@ bool PDSettingsStore::hasOverride(std::string const &key, std::string const &pac
 		return false;
 	}
 
-	auto const pack = module->packs.find(packId);
+	auto const kind = module->kinds.find(kindId);
 
-	if (pack == module->packs.end())
+	if (kind == module->kinds.end())
 	{
 		return false;
 	}
 
-	return pack->second.find(id) != pack->second.end();
+	return kind->second.find(id) != kind->second.end();
 }
 
 bool PDSettingsStore::hasStoredValue(std::string const &key, std::string const &id) const
@@ -458,7 +458,7 @@ bool PDSettingsStore::hasStoredValue(std::string const &key, std::string const &
 	return module->values.find(id) != module->values.end();
 }
 
-std::vector<std::string> PDSettingsStore::packsWithOverrides(std::string const &key) const
+std::vector<std::string> PDSettingsStore::kindsWithOverrides(std::string const &key) const
 {
 	std::shared_lock<std::shared_mutex> const lock(m_mutex);
 	Module const *const module = findModule(key);
@@ -470,11 +470,11 @@ std::vector<std::string> PDSettingsStore::packsWithOverrides(std::string const &
 
 	std::vector<std::string> result;
 
-	for (std::pair<std::string const, PDSettingValues> const &pack : module->packs)
+	for (std::pair<std::string const, PDSettingValues> const &kind : module->kinds)
 	{
-		if (not pack.second.empty())
+		if (not kind.second.empty())
 		{
-			result.push_back(pack.first);
+			result.push_back(kind.first);
 		}
 	}
 
@@ -483,24 +483,24 @@ std::vector<std::string> PDSettingsStore::packsWithOverrides(std::string const &
 	return result;
 }
 
-void PDSettingsStore::setValue(std::string const &key, std::string const &packId, std::string const &id, PDSettingValue value)
+void PDSettingsStore::setValue(std::string const &key, std::string const &kindId, std::string const &id, PDSettingValue value)
 {
 	std::unique_lock<std::shared_mutex> const lock(m_mutex);
 	Module &module = m_modules[key];
 
-	if (packId.empty())
+	if (kindId.empty())
 	{
 		module.values[id] = std::move(value);
 	}
 	else
 	{
-		module.packs[packId][id] = std::move(value);
+		module.kinds[kindId][id] = std::move(value);
 	}
 
 	m_version.fetch_add(1, std::memory_order_release);
 }
 
-void PDSettingsStore::clearValue(std::string const &key, std::string const &packId, std::string const &id)
+void PDSettingsStore::clearValue(std::string const &key, std::string const &kindId, std::string const &id)
 {
 	std::unique_lock<std::shared_mutex> const lock(m_mutex);
 
@@ -511,21 +511,21 @@ void PDSettingsStore::clearValue(std::string const &key, std::string const &pack
 		return;
 	}
 
-	if (packId.empty())
+	if (kindId.empty())
 	{
 		existing->second.values.erase(id);
 	}
 	else
 	{
-		auto const pack = existing->second.packs.find(packId);
+		auto const kind = existing->second.kinds.find(kindId);
 
-		if (pack != existing->second.packs.end())
+		if (kind != existing->second.kinds.end())
 		{
-			pack->second.erase(id);
+			kind->second.erase(id);
 
-			if (pack->second.empty())
+			if (kind->second.empty())
 			{
-				existing->second.packs.erase(pack);
+				existing->second.kinds.erase(kind);
 			}
 		}
 	}
@@ -598,7 +598,7 @@ bool PDSettingsStore::readFrom(std::string const &path, bool replace)
 		for (std::pair<std::string const, Module> &entry : m_modules)
 		{
 			entry.second.values.clear();
-			entry.second.packs.clear();
+			entry.second.kinds.clear();
 		}
 	}
 
@@ -633,16 +633,16 @@ bool PDSettingsStore::readFrom(std::string const &path, bool replace)
 			readValues(*values, module.values);
 		}
 
-		auto const packs = entry.value().find("packs");
+		auto const kinds = entry.value().find("packs");
 
-		if (packs == entry.value().end() or not packs->is_object())
+		if (kinds == entry.value().end() or not kinds->is_object())
 		{
 			continue;
 		}
 
-		for (auto const &pack : packs->items())
+		for (auto const &kind : kinds->items())
 		{
-			readValues(pack.value(), module.packs[pack.key()]);
+			readValues(kind.value(), module.kinds[kind.key()]);
 		}
 	}
 
@@ -654,9 +654,9 @@ bool PDSettingsStore::readFrom(std::string const &path, bool replace)
 			{
 				entry.second.values.erase(declaration.id);
 
-				for (std::pair<std::string const, PDSettingValues> &pack : entry.second.packs)
+				for (std::pair<std::string const, PDSettingValues> &kind : entry.second.kinds)
 				{
-					pack.second.erase(declaration.id);
+					kind.second.erase(declaration.id);
 				}
 
 				continue;
@@ -664,9 +664,9 @@ bool PDSettingsStore::readFrom(std::string const &path, bool replace)
 
 			reconcile(declaration, entry.second.values);
 
-			for (std::pair<std::string const, PDSettingValues> &pack : entry.second.packs)
+			for (std::pair<std::string const, PDSettingValues> &kind : entry.second.kinds)
 			{
-				reconcile(declaration, pack.second);
+				reconcile(declaration, kind.second);
 			}
 		}
 	}
@@ -697,19 +697,19 @@ bool PDSettingsStore::writeTo(std::string const &path) const
 		for (std::pair<std::string const, Module> const &entry : m_modules)
 		{
 			nlohmann::json values = writeValues(entry.second.values);
-			nlohmann::json packs = nlohmann::json::object();
+			nlohmann::json kinds = nlohmann::json::object();
 
-			for (std::pair<std::string const, PDSettingValues> const &pack : entry.second.packs)
+			for (std::pair<std::string const, PDSettingValues> const &kind : entry.second.kinds)
 			{
-				nlohmann::json packValues = writeValues(pack.second);
+				nlohmann::json kindValues = writeValues(kind.second);
 
-				if (not packValues.empty())
+				if (not kindValues.empty())
 				{
-					packs[pack.first] = std::move(packValues);
+					kinds[kind.first] = std::move(kindValues);
 				}
 			}
 
-			if (values.empty() and packs.empty())
+			if (values.empty() and kinds.empty())
 			{
 				continue;
 			}
@@ -717,9 +717,9 @@ bool PDSettingsStore::writeTo(std::string const &path) const
 			nlohmann::json module = nlohmann::json::object();
 			module["settings"] = std::move(values);
 
-			if (not packs.empty())
+			if (not kinds.empty())
 			{
-				module["packs"] = std::move(packs);
+				module["packs"] = std::move(kinds);
 			}
 
 			modules[entry.first] = std::move(module);

@@ -1,12 +1,12 @@
 #pragma once
 
 #include <Engine/PDDiagnostics.h>
+#include <Engine/PDMonitor.h>
+#include <Engine/PDScriptCatalog.h>
+#include <Engine/PDSettings.h>
 #include <Engine/PDTexture.h>
-#include <Library/PDMonitor.h>
-#include <Library/PDPonyCatalog.h>
-#include <Library/PDSceneEntry.h>
-#include <Library/PDScriptCatalog.h>
-#include <Library/PDSettings.h>
+#include <Pony/PDPonyCatalog.h>
+#include <Pony/PDSceneEntry.h>
 #include <UI/Windows/PDBehaviorEditor.h>
 
 #include <imgui.h>

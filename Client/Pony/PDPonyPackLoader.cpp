@@ -1,6 +1,6 @@
-#include <Library/PDPonyPackLoader.h>
+#include <Pony/PDPonyPackLoader.h>
 
-#include <Library/PDPonyPackOverride.h>
+#include <Pony/PDPonyPackOverride.h>
 
 #include <nlohmann/json.hpp>
 
@@ -228,7 +228,7 @@ bool loadPonyPack(std::string const &packPath, PDPonyPackData &outData, std::str
 				continue;
 			}
 
-			PDPonyAnimationRef reference;
+			PDAnimationRef reference;
 			reference.left = absolutePath(root, stringOr(entry.value(), "left", std::string()));
 			reference.right = absolutePath(root, stringOr(entry.value(), "right", std::string()));
 

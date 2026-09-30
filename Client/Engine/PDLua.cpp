@@ -73,7 +73,7 @@ void PDLua::initialize(std::string const &scriptsRoot, PDDiagnostics &diagnostic
 		{
 			sol::table neighbor = m_lua.create_table();
 			neighbor["id"] = found[i].id;
-			neighbor["pack"] = found[i].pack;
+			neighbor["kind"] = found[i].kind;
 			neighbor["x"] = found[i].x;
 			neighbor["y"] = found[i].y;
 			neighbor["busy"] = found[i].busy;
@@ -150,14 +150,14 @@ void PDLua::beginFrame(float boundsWidth, float boundsHeight, std::vector<PDRect
 	m_frame["monitors"] = areas;
 }
 
-sol::table PDLua::createSelf(std::uint32_t entityId, std::string const &packId)
+sol::table PDLua::createSelf(std::uint32_t entityId, std::string const &kindId)
 {
 	sol::table self = m_lua.create_table();
 	self["id"] = entityId;
 
-	self["setting"] = [this, packId](sol::this_state state, sol::table, std::string const &id)
+	self["setting"] = [this, kindId](sol::this_state state, sol::table, std::string const &id)
 	{
-		return settingObject(state, m_currentModule, packId, id);
+		return settingObject(state, m_currentModule, kindId, id);
 	};
 
 	self[sol::metatable_key] = m_metatable;
@@ -174,131 +174,6 @@ sol::table PDLua::createInvite(std::uint32_t from, std::string const &behavior)
 	return invite;
 }
 
-sol::table PDLua::buildPackReal(PDPonyPackData const &pack)
-{
-	sol::table behaviors = m_lua.create_table();
-	sol::table byId = m_lua.create_table();
-
-	for (std::size_t index = 0; index < pack.behaviors.size(); index += 1)
-	{
-		PDPonyBehaviorData const &source = pack.behaviors[index];
-
-		sol::table behavior = m_lua.create_table();
-		behavior["id"] = source.id;
-		behavior["name"] = source.name;
-		behavior["animation"] = source.animation;
-		behavior["movement"] = source.movement;
-		behavior["chance"] = source.chance;
-		behavior["duration_min"] = source.durationMinSeconds;
-		behavior["duration_max"] = source.durationMaxSeconds;
-		behavior["speed"] = source.speedPxPerSec;
-		behavior["group"] = source.group;
-		behavior["special"] = source.special;
-		behavior["skip"] = source.skip;
-		behavior["prevent_animation_loop"] = source.preventAnimationLoop;
-
-		if (not source.linkedBehavior.empty())
-		{
-			behavior["linked"] = source.linkedBehavior;
-		}
-
-		behaviors[index + 1] = behavior;
-
-		if (not source.id.empty())
-		{
-			byId[source.id] = behavior;
-		}
-	}
-
-	sol::table groups = m_lua.create_table();
-
-	for (std::size_t index = 0; index < pack.groups.size(); index += 1)
-	{
-		groups[index + 1] = pack.groups[index].id;
-	}
-
-	sol::table interactions = m_lua.create_table();
-
-	for (std::size_t i = 0; i < pack.interactions.size(); i += 1)
-	{
-		PDPonyInteractionData const &source = pack.interactions[i];
-
-		sol::table targets = m_lua.create_table();
-
-		for (std::size_t j = 0; j < source.targets.size(); j += 1)
-		{
-			targets[j + 1] = source.targets[j];
-		}
-
-		sol::table behaviorIds = m_lua.create_table();
-
-		for (std::size_t j = 0; j < source.behaviors.size(); j += 1)
-		{
-			behaviorIds[j + 1] = source.behaviors[j];
-		}
-
-		sol::table interaction = m_lua.create_table();
-		interaction["id"] = source.id;
-		interaction["activation"] = source.activation;
-		interaction["targets"] = targets;
-		interaction["behaviors"] = behaviorIds;
-		interaction["chance"] = source.chance;
-		interaction["proximity"] = source.proximityPx;
-		interaction["delay"] = source.reactivationDelaySeconds;
-
-		interactions[i + 1] = interaction;
-	}
-
-	sol::table real = m_lua.create_table();
-	real["id"] = pack.id;
-	real["name"] = pack.name;
-	real["behaviors"] = behaviors;
-	real["by_id"] = byId;
-	real["groups"] = groups;
-	real["interactions"] = interactions;
-
-	return real;
-}
-
-sol::table PDLua::packTable(PDPonyPackData const &pack)
-{
-	auto const existing = m_packTables.find(pack.packPath);
-
-	if (existing != m_packTables.end())
-	{
-		return existing->second.proxy;
-	}
-
-	PackTables tables;
-	tables.real = buildPackReal(pack);
-	tables.meta = m_lua.create_table();
-	tables.meta["__index"] = tables.real;
-	tables.meta["__metatable"] = false;
-
-	tables.meta["__newindex"] = [](sol::this_state state, sol::table, sol::object, sol::object)
-	{
-		return luaL_error(state.lua_state(), "pack data is read-only");
-	};
-
-	tables.proxy = m_lua.create_table();
-	tables.proxy[sol::metatable_key] = tables.meta;
-
-	return m_packTables.emplace(pack.packPath, std::move(tables)).first->second.proxy;
-}
-
-void PDLua::refreshPackTable(PDPonyPackData const &pack)
-{
-	auto const existing = m_packTables.find(pack.packPath);
-
-	if (existing == m_packTables.end())
-	{
-		return;
-	}
-
-	existing->second.real = buildPackReal(pack);
-	existing->second.meta["__index"] = existing->second.real;
-}
-
 bool PDLua::declareSetting(std::string const &moduleKey, PDSettingDeclaration declaration)
 {
 	std::string warning;
@@ -312,7 +187,7 @@ bool PDLua::declareSetting(std::string const &moduleKey, PDSettingDeclaration de
 	return accepted;
 }
 
-PDSettingValue PDLua::settingValue(std::string const &moduleKey, std::string const &packId, std::string const &id) const
+PDSettingValue PDLua::settingValue(std::string const &moduleKey, std::string const &kindId, std::string const &id) const
 {
 	auto const module = m_snapshot.modules.find(moduleKey);
 
@@ -321,15 +196,15 @@ PDSettingValue PDLua::settingValue(std::string const &moduleKey, std::string con
 		return {};
 	}
 
-	if (not packId.empty())
+	if (not kindId.empty())
 	{
-		auto const pack = module->second.packs.find(packId);
+		auto const kind = module->second.kinds.find(kindId);
 
-		if (pack != module->second.packs.end())
+		if (kind != module->second.kinds.end())
 		{
-			auto const overridden = pack->second.find(id);
+			auto const overridden = kind->second.find(id);
 
-			if (overridden != pack->second.end())
+			if (overridden != kind->second.end())
 			{
 				return overridden->second;
 			}
@@ -346,9 +221,9 @@ PDSettingValue PDLua::settingValue(std::string const &moduleKey, std::string con
 	return {};
 }
 
-sol::object PDLua::settingObject(sol::this_state state, std::string const &moduleKey, std::string const &packId, std::string const &id) const
+sol::object PDLua::settingObject(sol::this_state state, std::string const &moduleKey, std::string const &kindId, std::string const &id) const
 {
-	PDSettingValue const value = settingValue(moduleKey, packId, id);
+	PDSettingValue const value = settingValue(moduleKey, kindId, id);
 
 	switch (value.type)
 	{

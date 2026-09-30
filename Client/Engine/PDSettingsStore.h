@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Library/PDSettings.h>
+#include <Engine/PDSettings.h>
 
 #include <atomic>
 #include <cstdint>
@@ -12,7 +12,7 @@
 struct PDSettingsModuleSnapshot
 {
 	std::unordered_map<std::string, PDSettingValue> values;
-	std::unordered_map<std::string, std::unordered_map<std::string, PDSettingValue>> packs;
+	std::unordered_map<std::string, std::unordered_map<std::string, PDSettingValue>> kinds;
 };
 
 struct PDSettingsSnapshot
@@ -47,13 +47,13 @@ public:
 	bool refresh(PDSettingsSnapshot &snapshot) const;
 
 	std::vector<PDSettingDeclaration> declarations(std::string const &key) const;
-	PDSettingValue value(std::string const &key, std::string const &packId, std::string const &id) const;
-	bool hasOverride(std::string const &key, std::string const &packId, std::string const &id) const;
+	PDSettingValue value(std::string const &key, std::string const &kindId, std::string const &id) const;
+	bool hasOverride(std::string const &key, std::string const &kindId, std::string const &id) const;
 	bool hasStoredValue(std::string const &key, std::string const &id) const;
-	std::vector<std::string> packsWithOverrides(std::string const &key) const;
+	std::vector<std::string> kindsWithOverrides(std::string const &key) const;
 
-	void setValue(std::string const &key, std::string const &packId, std::string const &id, PDSettingValue value);
-	void clearValue(std::string const &key, std::string const &packId, std::string const &id);
+	void setValue(std::string const &key, std::string const &kindId, std::string const &id, PDSettingValue value);
+	void clearValue(std::string const &key, std::string const &kindId, std::string const &id);
 
 	bool appFlag(std::string const &id, bool fallback) const;
 	void setAppFlag(std::string const &id, bool value);
@@ -67,7 +67,7 @@ private:
 	{
 		std::vector<PDSettingDeclaration> declarations;
 		PDSettingValues values;
-		std::unordered_map<std::string, PDSettingValues> packs;
+		std::unordered_map<std::string, PDSettingValues> kinds;
 	};
 
 	static PDSettingValueType expectedType(PDSettingKind kind);

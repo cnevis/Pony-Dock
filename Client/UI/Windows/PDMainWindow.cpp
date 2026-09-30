@@ -1026,7 +1026,7 @@ void PDMainWindow::drawTargetModal()
 	ImGui::Dummy(ImVec2(0.0f, 10.0f));
 
 	std::string const filter = toLower(m_targetFilter);
-	std::vector<std::string> const overridden = m_app.settings().packsWithOverrides(m_settingsModule);
+	std::vector<std::string> const overridden = m_app.settings().kindsWithOverrides(m_settingsModule);
 
 	std::vector<int> visible;
 
