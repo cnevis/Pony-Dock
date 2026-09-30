@@ -23,7 +23,7 @@ settings.slider("speed", "Speed multiplier", 1.0, 0.1, 4.0)
 MSVC (Visual Studio 2026 or the build tools) with the C++ workload, CMake 3.28 or newer, and Ninja are required.
 
 ```
-git clone --recurse-submodules https://github.com/kuningashallinta/Pony-Dock.git
+git clone --recurse-submodules https://github.com/cnevis/Pony-Dock.git
 cd Pony-Dock
 cmake --preset x64-Release
 cmake --build --preset x64-Release
