@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <filesystem>
+#include <unordered_set>
 
 PDScene::~PDScene()
 {
@@ -545,6 +546,31 @@ void PDScene::tick(
 		position.x = script.self["x"].get_or(position.x);
 		position.y = script.self["y"].get_or(position.y);
 	}
+
+	trimLabels();
+}
+
+void PDScene::trimLabels()
+{
+	if (m_labels.size() <= MaxCachedLabels)
+	{
+		return;
+	}
+
+	std::unordered_set<std::string> inUse;
+	auto view = m_registry.view<PDLabel const>();
+
+	for (auto const entity : view)
+	{
+		PDLabel const &label = view.get<PDLabel const>(entity);
+
+		if (label.texture != nullptr)
+		{
+			inUse.insert(label.text);
+		}
+	}
+
+	m_labels.retain(inUse);
 }
 
 void PDScene::draw(PDSpriteRenderer &renderer) const

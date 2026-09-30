@@ -22,6 +22,7 @@ struct PDSettingTarget
 {
 	std::string id;
 	std::string label;
+	std::string searchLabel;
 	std::string previewPath;
 };
 
@@ -82,6 +83,7 @@ private:
 
 	void drawContent();
 	void drawBrowserView();
+	static float cardHeight();
 	PDCardInput drawPonyCard(
 		std::string const &name,
 		std::string const &sub,
@@ -127,6 +129,8 @@ private:
 	View m_activeView = View::Browser;
 
 	PDPonyCatalog m_catalog;
+	std::vector<std::string> m_searchNames;
+	std::vector<std::size_t> m_visibleGroups;
 	std::unordered_map<std::string, PDTexture> m_thumbnails;
 	int m_thumbnailBudget = 0;
 

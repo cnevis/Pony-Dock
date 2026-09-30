@@ -60,6 +60,11 @@ public:
 		return m_lua.pressButton(moduleKey, settingId);
 	}
 
+	bool empty() const
+	{
+		return m_registry.view<PDPosition const>().empty();
+	}
+
 	void updateMouse(int x, int y, bool pressed, bool released);
 	bool wantsMouse() const;
 
@@ -72,6 +77,7 @@ public:
 
 private:
 	static constexpr int MaxScriptErrors = 3;
+	static constexpr std::size_t MaxCachedLabels = 256;
 
 	struct Invite
 	{
@@ -80,6 +86,7 @@ private:
 	};
 
 	void advanceAnimations(float deltaSeconds);
+	void trimLabels();
 	void writeSpriteFromAnimation(PDAnimation const &animation, PDSprite &sprite) const;
 
 	bool playAnimation(entt::entity entity, std::string const &name, bool loop, bool restart);

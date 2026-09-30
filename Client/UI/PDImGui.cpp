@@ -159,7 +159,7 @@ void PDImGui::endFrame()
 		ImGui::RenderPlatformWindowsDefault();
 	}
 
-	m_swapChain->Present(1, 0);
+	m_occluded = m_swapChain->Present(1, 0) == DXGI_STATUS_OCCLUDED;
 }
 
 bool PDImGui::createDevice()
@@ -246,6 +246,15 @@ void PDImGui::renderFrame()
 	{
 		return;
 	}
+
+	if (IsIconic(m_window) or (m_occluded and m_swapChain->Present(0, DXGI_PRESENT_TEST) == DXGI_STATUS_OCCLUDED))
+	{
+		Sleep(OccludedSleepMilliseconds);
+
+		return;
+	}
+
+	m_occluded = false;
 
 	beginFrame();
 	m_frameCallback();

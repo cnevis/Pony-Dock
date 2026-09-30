@@ -96,6 +96,7 @@ private:
 	InviteHandler m_inviteHandler;
 
 	std::unordered_map<std::string, Module> m_modules;
+	mutable std::unordered_map<std::string, std::string> m_modulePaths;
 
 	PDSettingsStore *m_settings = nullptr;
 	PDSettingsSnapshot m_snapshot;

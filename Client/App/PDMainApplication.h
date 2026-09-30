@@ -53,6 +53,7 @@ public:
 
 private:
 	static constexpr float MaxDeltaSeconds = 0.1f;
+	static constexpr DWORD IdleWaitMilliseconds = 50;
 	static constexpr std::size_t MaxPendingButtons = 32;
 
 	struct ScriptCommand
@@ -73,6 +74,7 @@ private:
 	void applyPendingScripts();
 	void applyPendingButtons();
 	void applyPendingPacks();
+	void publishLoadedScripts();
 
 	PDDiagnostics m_diagnostics;
 	PDSettingsStore m_settings;

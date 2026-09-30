@@ -562,6 +562,7 @@ void PDLua::reload()
 	m_buttonHandlers.clear();
 	m_settings->clearAllDeclarations();
 	forgetPackage(std::string());
+	m_modulePaths.clear();
 
 	for (std::string const &path : paths)
 	{
@@ -571,10 +572,19 @@ void PDLua::reload()
 
 std::string PDLua::modulePath(std::string const &name) const
 {
+	auto const cached = m_modulePaths.find(name);
+
+	if (cached != m_modulePaths.end())
+	{
+		return cached->second;
+	}
+
 	std::string const candidates[] = {
 		m_scriptsRoot + "/" + name + ".lua",
 		m_scriptsRoot + "/lib/" + name + ".lua",
 	};
+
+	std::string resolved;
 
 	for (std::string const &candidate : candidates)
 	{
@@ -582,11 +592,15 @@ std::string PDLua::modulePath(std::string const &name) const
 
 		if (std::filesystem::exists(candidate, error))
 		{
-			return std::filesystem::path(candidate).lexically_normal().string();
+			resolved = std::filesystem::path(candidate).lexically_normal().string();
+
+			break;
 		}
 	}
 
-	return std::string();
+	m_modulePaths.emplace(name, resolved);
+
+	return resolved;
 }
 
 void PDLua::forgetPackage(std::string const &normalizedPath)

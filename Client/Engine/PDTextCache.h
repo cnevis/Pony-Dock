@@ -6,8 +6,10 @@
 #include <d3d11.h>
 #include <dwrite.h>
 
+#include <cstddef>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 class PDTextCache
 {
@@ -21,6 +23,13 @@ public:
 	void initialize(ID3D11Device *device);
 
 	PDTexture const *texture(std::string const &text);
+
+	std::size_t size() const
+	{
+		return m_textures.size();
+	}
+
+	void retain(std::unordered_set<std::string> const &texts);
 
 private:
 	ID3D11Device *m_device = nullptr;

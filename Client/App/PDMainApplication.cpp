@@ -83,6 +83,7 @@ void PDMainApplication::runOverlay(HINSTANCE instance)
 	m_diagnostics.write("Overlay ready at " + std::to_string(m_overlay.width()) + "x" + std::to_string(m_overlay.height()));
 
 	std::chrono::steady_clock::time_point lastTick = std::chrono::steady_clock::now();
+	bool idle = false;
 
 	while (m_overlayRunning)
 	{
@@ -104,6 +105,18 @@ void PDMainApplication::runOverlay(HINSTANCE instance)
 		applyPendingPacks();
 		applyPendingScene();
 
+		if (idle and m_scene.empty())
+		{
+			m_overlay.pollMouse();
+			applyPendingButtons();
+			publishLoadedScripts();
+
+			MsgWaitForMultipleObjects(0, nullptr, FALSE, IdleWaitMilliseconds, QS_ALLINPUT);
+			lastTick = std::chrono::steady_clock::now();
+
+			continue;
+		}
+
 		std::chrono::steady_clock::time_point const now = std::chrono::steady_clock::now();
 		float const elapsedSeconds = std::chrono::duration<float>(now - lastTick).count();
 		float const deltaSeconds = elapsedSeconds < MaxDeltaSeconds ? elapsedSeconds : MaxDeltaSeconds;
@@ -115,20 +128,27 @@ void PDMainApplication::runOverlay(HINSTANCE instance)
 
 		m_scene.tick(deltaSeconds, m_overlay.width(), m_overlay.height(), walkableRects());
 		applyPendingButtons();
-
-		{
-			std::lock_guard<std::mutex> const lock(m_scriptsMutex);
-			m_loadedScripts = m_scene.loadedScripts();
-		}
+		publishLoadedScripts();
 
 		m_overlay.beginFrame();
 		m_spriteRenderer.begin(m_overlay.context(), m_overlay.width(), m_overlay.height());
 		m_scene.draw(m_spriteRenderer);
+		m_spriteRenderer.end();
 		m_overlay.endFrame();
+
+		idle = m_scene.empty();
 	}
 
 	m_spriteRenderer.shutdown();
 	m_overlay.shutdown();
+}
+
+void PDMainApplication::publishLoadedScripts()
+{
+	std::vector<std::string> loaded = m_scene.loadedScripts();
+
+	std::lock_guard<std::mutex> const lock(m_scriptsMutex);
+	m_loadedScripts = std::move(loaded);
 }
 
 std::vector<PDRect> PDMainApplication::walkableRects() const
