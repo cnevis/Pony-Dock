@@ -1,28 +1,12 @@
 # Pony Dock
 
-This is a reimplementation of [Desktop Ponies](https://github.com/RoosterDragon/Desktop-Ponies). The sprites come from that project. see [License](#license).
-
-Animated ponies walk around on your Windows desktop. A control panel picks which ones show up and how they behave.
+Animated ponies that walk around your Windows desktop, with a control panel to pick which ones show up and how they behave. A reimplementation of [Desktop Ponies](https://github.com/RoosterDragon/Desktop-Ponies), whose sprites it uses.
 
 ![Pony Dock](docs/screenshot.png)
 
-## Details for nerds
+## Building
 
-Behavior is Lua; the C++ side only draws sprites and keeps time. A module is a file under `Scripts/` returning a table with `spawn(self)` and `tick(self, dt)`. `self` is per entity and survives between ticks, so state lives on it. The host writes position, size, facing and whether the pony is hovered or dragged onto `self` before each tick, then reads `x` and `y` back. `self.pack` is the pony's behavior data, read-only. `self:play(name, loop)`, `self:set_facing("left")`, `self:setting(id)` and `self:log(message)` do the rest.
-
-Modules declare their own controls, which appear in the Modules view:
-
-```lua
-settings.slider("speed", "Speed multiplier", 1.0, 0.1, 4.0)
-```
-
-`self:setting("speed")` reads it back, globally or per pack. `self:nearby(radius)` lists other entities around, each with its `id`, `kind` (the pack id for ponies), position and `busy` flag, and `self:invite(id, behavior)` asks one of them to join in. Script errors land in the Log view with a traceback instead of killing the app, and scripts reload without a restart. `core.lua` is the default module: weighted pick, linked behaviors, bounce at the edge, etc.
-
-The C++ side is split in two. `Client/Engine/` is the generic part: entities, sprites, animations, the overlay, the Lua host and module settings. It knows nothing about ponies; an entity is spawned from a `PDEntityKind`, which is just an id, a preview image and named left/right animations. `Client/Pony/` is the Desktop Ponies part: it reads `pony.json` packs and their overrides, turns each pack into a kind and hands scripts the read-only `self.pack` table. `App/` and `UI/` sit on top of both.
-
-### Building
-
-MSVC (Visual Studio 2026 or the build tools) with the C++ workload, CMake 3.28 or newer, and Ninja are required.
+Needs MSVC (Visual Studio 2026 or the build tools) with the C++ workload, CMake 3.28+ and Ninja.
 
 ```
 git clone --recurse-submodules https://github.com/cnevis/Pony-Dock.git
@@ -31,10 +15,37 @@ cmake --preset x64-Release
 cmake --build --preset x64-Release
 ```
 
-vcpkg is a submodule and builds nlohmann-json, EnTT, stb, Lua and sol2 on the first configure, so expect that step to take a while. Dear ImGui is vendored as well, on the docking branch.
+The first configure builds the dependencies through vcpkg, so it takes a while. `Packs/` and `Scripts/` are copied next to `Client.exe` on every build.
 
-The overlay is a click-through layered window over the virtual desktop, taking clicks only while the cursor is on a pony. `Packs/` and `Scripts/` are copied next to `Client.exe` after every build and loaded from there, so the build output already has the layout a release needs.
+## How it works
+
+- `Client/Engine/` is generic: sprites, animations, the overlay window and the Lua host. It knows nothing about ponies.
+- `Client/Pony/` loads the pony packs in `Packs/` and turns them into things the engine can spawn.
+- `Scripts/` holds the behavior, written in Lua. `core.lua` is the default module.
+
+## Writing a module
+
+A module is a Lua file in `Scripts/` that returns a table with `spawn(self)` and `tick(self, dt)`. `self` belongs to one pony and keeps its state between ticks.
+
+```lua
+local mod = {}
+
+settings.slider("speed", "Speed multiplier", 1.0, 0.1, 4.0)
+
+function mod.tick(self, dt)
+	self.x = self.x + 20 * self:setting("speed") * dt
+end
+
+return mod
+```
+
+- Read on `self`: `x`, `y`, `width`, `height`, `facing`, `mouse_over`, `dragged` and `pack` (the pony's behavior data)
+- Write `x` and `y` to move the pony
+- Call `self:play(name, loop)`, `self:set_facing("left")`, `self:setting(id)`, `self:log(message)`
+- Call `self:nearby(radius)` to find other ponies and `self:invite(id, behavior)` to ask one to join a behavior
+
+Settings show up in the Modules view. Errors go to the Log view instead of crashing, and scripts reload without a restart.
 
 ## License
 
-Pony Dock is licensed under the [MIT License](LICENSE). Artwork stays under [CC BY-NC-SA 3.0](https://creativecommons.org/licenses/by-nc-sa/3.0/), which makes `Packs/` non-commercial and share-alike. [CREDITS.md](CREDITS.md).
+Code is [MIT](LICENSE). Artwork in `Packs/` is [CC BY-NC-SA 3.0](https://creativecommons.org/licenses/by-nc-sa/3.0/), see [CREDITS.md](CREDITS.md).
