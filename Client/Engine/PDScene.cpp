@@ -359,6 +359,8 @@ void PDScene::enterBehavior(entt::entity entity, std::size_t index, int depth)
 	PDBehavior& state = m_registry.get<PDBehavior>(entity);
 	bool horizontal = false;
 	bool vertical = false;
+	float angleMin = 15.0f;
+	float angleSpan = 60.0f;
 
 	state.active = index < data.behaviors.size();
 	state.vx = 0.0f;
@@ -426,6 +428,7 @@ void PDScene::enterBehavior(entt::entity entity, std::size_t index, int depth)
 		{
 			horizontal = true;
 			vertical = m_random(m_rng) < 0.5f;
+			angleSpan = 30.0f;
 
 			break;
 		}
@@ -434,6 +437,8 @@ void PDScene::enterBehavior(entt::entity entity, std::size_t index, int depth)
 		{
 			horizontal = m_random(m_rng) < 0.5f;
 			vertical = true;
+			angleMin = 45.0f;
+			angleSpan = 30.0f;
 
 			break;
 		}
@@ -459,7 +464,7 @@ void PDScene::enterBehavior(entt::entity entity, std::size_t index, int depth)
 
 	if (horizontal and vertical)
 	{
-		float const angle = (30.0f + m_random(m_rng) * 45.0f) * std::numbers::pi_v<float> / 180.0f;
+		float const angle = (angleMin + m_random(m_rng) * angleSpan) * std::numbers::pi_v<float> / 180.0f;
 
 		state.vx = std::cos(angle) * signX * speed;
 		state.vy = std::sin(angle) * signY * speed;
