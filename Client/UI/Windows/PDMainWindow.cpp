@@ -147,6 +147,17 @@ void PDMainWindow::draw()
 			m_diagnostics.write("Could not save feature settings");
 		}
 	}
+
+	if (m_sceneDirty)
+	{
+		m_sceneDirty = false;
+		m_app.settings().setScene(m_scene);
+
+		if (not m_app.settings().save())
+		{
+			m_diagnostics.write("Could not save the scene");
+		}
+	}
 }
 
 void PDMainWindow::drawSidebar(float width, float height)
@@ -544,6 +555,7 @@ void PDMainWindow::drawSceneView()
 	if (ImGui::Button("Clear scene"))
 	{
 		m_scene.clear();
+		m_sceneDirty = true;
 	}
 
 	char summary[64];
@@ -613,6 +625,7 @@ void PDMainWindow::drawSceneView()
 			if (entry.quantity > 1)
 			{
 				entry.quantity -= 1;
+				m_sceneDirty = true;
 			}
 			else
 			{
@@ -633,6 +646,7 @@ void PDMainWindow::drawSceneView()
 		if (ImGui::Button("+", ImVec2(24.0f, 24.0f)))
 		{
 			entry.quantity += 1;
+			m_sceneDirty = true;
 		}
 
 		ImGui::SameLine(0.0f, 10.0f);
@@ -678,6 +692,7 @@ void PDMainWindow::addToScene(std::string const& displayName, PDPonyPack const& 
 		if (entry.id == pack.id)
 		{
 			entry.quantity += 1;
+			m_sceneDirty = true;
 
 			return;
 		}
@@ -690,6 +705,7 @@ void PDMainWindow::addToScene(std::string const& displayName, PDPonyPack const& 
 	entry.packPath = pack.packPath;
 	entry.quantity = 1;
 	m_scene.push_back(std::move(entry));
+	m_sceneDirty = true;
 }
 
 void PDMainWindow::removeSceneEntry(std::size_t index)
@@ -700,6 +716,7 @@ void PDMainWindow::removeSceneEntry(std::size_t index)
 	}
 
 	m_scene.erase(m_scene.begin() + (std::ptrdiff_t)index);
+	m_sceneDirty = true;
 }
 
 void PDMainWindow::drawForceBar()
@@ -790,6 +807,33 @@ void PDMainWindow::forceCombo(char const* label, std::string* id)
 	}
 
 	ImGui::PopID();
+}
+
+void PDMainWindow::restoreScene()
+{
+	m_scene.clear();
+
+	for (PDSceneEntry const& saved : m_app.settings().scene())
+	{
+		for (PDPonyGroup const& group : m_catalog.groups())
+		{
+			for (PDPonyPack const& variant : group.variants)
+			{
+				if (variant.id != saved.id)
+				{
+					continue;
+				}
+
+				PDSceneEntry entry;
+				entry.id = variant.id;
+				entry.displayName = group.displayName;
+				entry.previewPath = variant.previewPath;
+				entry.packPath = variant.packPath;
+				entry.quantity = saved.quantity;
+				m_scene.push_back(std::move(entry));
+			}
+		}
+	}
 }
 
 int PDMainWindow::gridColumns(float available, float* result)
@@ -1252,6 +1296,11 @@ void PDMainWindow::importConfig()
 	}
 
 	m_configFailed = not m_app.settings().importFrom(path);
+
+	if (not m_configFailed)
+	{
+		restoreScene();
+	}
 
 	m_configStatus = m_configFailed ? ("Could not import " + path) : ("Imported from " + path);
 

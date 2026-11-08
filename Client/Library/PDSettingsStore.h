@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Library/PDSceneEntry.h>
 #include <Library/PDSettings.h>
 
 #include <atomic>
@@ -42,6 +43,9 @@ public:
 	bool appFlag(std::string const& id, bool fallback) const;
 	void setAppFlag(std::string const& id, bool value);
 
+	std::vector<PDSceneEntry> scene() const;
+	void setScene(std::vector<PDSceneEntry> const& entries);
+
 private:
 	bool readFrom(std::string const& path);
 	bool writeTo(std::string const& path) const;
@@ -52,4 +56,5 @@ private:
 	PDSettings m_defaults;
 	std::unordered_map<std::string, PDSettings> m_packs;
 	std::unordered_map<std::string, bool> m_app;
+	std::vector<PDSceneEntry> m_scene;
 };

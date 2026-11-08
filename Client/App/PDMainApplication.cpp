@@ -43,6 +43,7 @@ int PDMainApplication::run(HINSTANCE instance)
 	}
 
 	m_settings.load();
+	m_mainWindow.restoreScene();
 	m_diagnostics.write("Settings at " + m_settings.path());
 
 	m_overlayRunning = true;

@@ -242,6 +242,7 @@ bool PDSettingsStore::importFrom(std::string const& path)
 	m_defaults = imported.m_defaults;
 	m_packs = std::move(imported.m_packs);
 	m_app = std::move(imported.m_app);
+	m_scene = std::move(imported.m_scene);
 	m_version.fetch_add(1, std::memory_order_release);
 
 	return true;
@@ -339,6 +340,19 @@ void PDSettingsStore::setAppFlag(std::string const& id, bool value)
 	m_version.fetch_add(1, std::memory_order_release);
 }
 
+std::vector<PDSceneEntry> PDSettingsStore::scene() const
+{
+	std::shared_lock<std::shared_mutex> const lock(m_mutex);
+
+	return m_scene;
+}
+
+void PDSettingsStore::setScene(std::vector<PDSceneEntry> const& entries)
+{
+	std::unique_lock<std::shared_mutex> const lock(m_mutex);
+	m_scene = entries;
+}
+
 bool PDSettingsStore::readFrom(std::string const& path)
 {
 	std::ifstream stream(nativePath(path), std::ios::binary);
@@ -357,9 +371,32 @@ bool PDSettingsStore::readFrom(std::string const& path)
 
 	PDSettingsSnapshot snapshot;
 	std::unordered_map<std::string, bool> app;
+	std::vector<PDSceneEntry> scene;
 
 	try
 	{
+		nlohmann::json const staged = document.value("scene", nlohmann::json::array());
+
+		if (staged.is_array())
+		{
+			for (nlohmann::json const& node : staged)
+			{
+				if (not node.is_object())
+				{
+					continue;
+				}
+
+				PDSceneEntry entry;
+				entry.id = node.value("id", std::string());
+				entry.quantity = std::clamp(node.value("quantity", 1), 1, 99);
+
+				if (not entry.id.empty())
+				{
+					scene.push_back(std::move(entry));
+				}
+			}
+		}
+
 		nlohmann::json const flags = document.value("app", nlohmann::json::object());
 
 		if (not flags.is_object())
@@ -414,6 +451,7 @@ bool PDSettingsStore::readFrom(std::string const& path)
 	m_defaults = snapshot.defaults;
 	m_packs = std::move(snapshot.packs);
 	m_app = std::move(app);
+	m_scene = std::move(scene);
 	m_version.fetch_add(1, std::memory_order_release);
 
 	return true;
@@ -426,16 +464,23 @@ bool PDSettingsStore::writeTo(std::string const& path) const
 	{
 		std::shared_lock<std::shared_mutex> const lock(m_mutex);
 		nlohmann::json packs = nlohmann::json::object();
+		nlohmann::json scene = nlohmann::json::array();
 
 		for (std::pair<std::string const, PDSettings> const& entry : m_packs)
 		{
 			packs[entry.first] = writeSettings(entry.second);
 		}
 
+		for (PDSceneEntry const& entry : m_scene)
+		{
+			scene.push_back({{"id", entry.id}, {"quantity", entry.quantity}});
+		}
+
 		document["version"] = 2;
 		document["defaults"] = writeSettings(m_defaults);
 		document["packs"] = std::move(packs);
 		document["app"] = m_app;
+		document["scene"] = std::move(scene);
 	}
 
 	std::string text;

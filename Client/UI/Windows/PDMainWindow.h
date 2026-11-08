@@ -37,6 +37,7 @@ public:
 	PDMainWindow(PDMainApplication& app, PDImGui& host, PDDiagnostics& diagnostics);
 
 	void draw();
+	void restoreScene();
 
 	std::vector<PDSceneEntry> const& scene() const
 	{
@@ -124,6 +125,7 @@ private:
 	int m_selectedGroup = -1;
 
 	std::vector<PDSceneEntry> m_scene;
+	bool m_sceneDirty = false;
 	std::string m_forcePony;
 	std::string m_forceTarget;
 
