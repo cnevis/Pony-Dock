@@ -81,6 +81,7 @@ static PDSettings readSettings(nlohmann::json const& node, PDSettings const& fal
 	value.flying = node.value("flying", value.flying);
 	value.extended = node.value("extended", value.extended);
 	value.interactions = node.value("interactions", value.interactions);
+	value.chasing = node.value("chasing", value.chasing);
 	value.dragging = node.value("dragging", value.dragging);
 	value.names = node.value("names", value.names);
 	value.linked = node.value("linked", value.linked);
@@ -135,6 +136,7 @@ static nlohmann::json writeSettings(PDSettings const& value)
 	node["flying"] = value.flying;
 	node["extended"] = value.extended;
 	node["interactions"] = value.interactions;
+	node["chasing"] = value.chasing;
 	node["dragging"] = value.dragging;
 	node["names"] = value.names;
 	node["linked"] = value.linked;

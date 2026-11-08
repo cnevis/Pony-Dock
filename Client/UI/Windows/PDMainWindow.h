@@ -93,6 +93,8 @@ private:
 	void addToScene(std::string const& displayName, PDPonyPack const& pack);
 	void removeSceneEntry(std::size_t index);
 	int sceneTotalQuantity() const;
+	void drawForceBar();
+	void forceCombo(char const* label, std::string* id);
 
 	void drawLogView();
 	void drawSettingsView();
@@ -122,6 +124,8 @@ private:
 	int m_selectedGroup = -1;
 
 	std::vector<PDSceneEntry> m_scene;
+	std::string m_forcePony;
+	std::string m_forceTarget;
 
 	std::string m_settingsTarget;
 	std::string m_settingsTargetLabel;

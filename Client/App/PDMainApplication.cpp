@@ -113,6 +113,7 @@ void PDMainApplication::runOverlay(HINSTANCE instance)
 
 		applyPendingPacks();
 		applyPendingScene();
+		applyPendingForces();
 
 		std::chrono::steady_clock::time_point const now = std::chrono::steady_clock::now();
 		float const elapsedSeconds = std::chrono::duration<float>(now - lastTick).count();
@@ -227,6 +228,28 @@ void PDMainApplication::stopScene()
 void PDMainApplication::reshuffle()
 {
 	m_pendingShuffle = true;
+}
+
+void PDMainApplication::force(PDForce const& request)
+{
+	std::lock_guard<std::mutex> const lock(m_sceneMutex);
+	m_pendingForces.push_back(request);
+}
+
+void PDMainApplication::applyPendingForces()
+{
+	std::vector<PDForce> requests;
+
+	{
+		std::lock_guard<std::mutex> const lock(m_sceneMutex);
+		requests = std::move(m_pendingForces);
+		m_pendingForces.clear();
+	}
+
+	for (PDForce const& request : requests)
+	{
+		m_scene.force(request);
+	}
 }
 
 void PDMainApplication::applyPendingPacks()

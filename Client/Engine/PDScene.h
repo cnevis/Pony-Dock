@@ -25,6 +25,20 @@
 #include <unordered_map>
 #include <vector>
 
+enum class PDForceAction
+{
+	Chase,
+	Follow,
+	Interact
+};
+
+struct PDForce
+{
+	PDForceAction action = PDForceAction::Chase;
+	std::string pony;
+	std::string target;
+};
+
 class PDScene
 {
 public:
@@ -33,6 +47,7 @@ public:
 	void clear();
 	void reshuffle();
 	void reloadPack(std::string const& packPath);
+	void force(PDForce const& request);
 
 	void updateMouse(int x, int y, bool pressed, bool released);
 	bool wantsMouse() const;
@@ -50,6 +65,17 @@ private:
 	void updateBehavior(entt::entity entity, float deltaSeconds);
 	void updateInteractions(float deltaSeconds);
 	bool startInteraction(entt::entity entity, PDPonyInteractionData const& interaction);
+	bool pairInteraction(entt::entity entity, entt::entity other, PDPonyInteractionData const& interaction);
+	void interact(entt::entity entity, entt::entity other);
+	entt::entity findPony(entt::entity entity, std::string const& packId);
+	std::size_t movingBehavior(entt::entity entity, bool fastest) const;
+	std::size_t stillBehavior(entt::entity entity, std::string const& type) const;
+	std::size_t idleBehavior(entt::entity entity) const;
+	bool startFollow(entt::entity entity, entt::entity target);
+	bool updateFollow(entt::entity entity, float deltaSeconds);
+	bool startChase(entt::entity entity);
+	void updateChase(entt::entity entity, float deltaSeconds);
+	void steer(entt::entity entity, float dx, float dy, float speed, float deltaSeconds);
 	void placeEntity(entt::entity entity);
 	void moveEntity(entt::entity entity, float deltaSeconds);
 	void constrain(entt::entity entity, float* vx, float* vy);
@@ -76,4 +102,6 @@ private:
 	entt::entity m_dragged = entt::null;
 	float m_dragOffsetX = 0.0f;
 	float m_dragOffsetY = 0.0f;
+	float m_cursorX = 0.0f;
+	float m_cursorY = 0.0f;
 };

@@ -13,6 +13,7 @@ struct PDSettings
 	bool flying = true;
 	bool extended = true;
 	bool interactions = false;
+	bool chasing = true;
 	bool dragging = true;
 	bool names = true;
 	bool linked = true;

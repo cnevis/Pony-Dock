@@ -85,6 +85,37 @@ static std::vector<std::string> stringArray(nlohmann::json const& object, char c
 	return values;
 }
 
+static std::string packId(std::string const& name)
+{
+	std::string id;
+	bool dash = false;
+
+	for (char c : name)
+	{
+		if (c >= 'A' and c <= 'Z')
+		{
+			c = (char)(c + ('a' - 'A'));
+		}
+
+		if ((c >= 'a' and c <= 'z') or (c >= '0' and c <= '9'))
+		{
+			if (dash and not id.empty())
+			{
+				id += '-';
+			}
+
+			id += c;
+			dash = false;
+		}
+		else
+		{
+			dash = true;
+		}
+	}
+
+	return id;
+}
+
 static std::string absolutePath(std::filesystem::path const& packPath, std::string const& relative)
 {
 	if (relative.empty())
@@ -324,6 +355,19 @@ bool loadPonyPack(std::string const& packPath, PDPonyPackData* result, std::stri
 			if (behavior.durationMaxSeconds < behavior.durationMinSeconds)
 			{
 				behavior.durationMaxSeconds = behavior.durationMinSeconds;
+			}
+
+			nlohmann::json::const_iterator const follow = entry.find("follow");
+
+			if (follow != entry.end() and follow->is_object())
+			{
+				behavior.followTarget = packId(stringOr(*follow, "target", std::string()));
+				behavior.followMoving = stringOr(*follow, "movingBehavior", std::string());
+				behavior.followStopped = stringOr(*follow, "stoppedBehavior", std::string());
+				behavior.followOffsetX = numberOr(*follow, "offsetX", 0.0f);
+				behavior.followOffsetY = numberOr(*follow, "offsetY", 0.0f);
+				behavior.followMirror = boolOr(*follow, "mirrorOffset", false);
+				behavior.followAutoImages = boolOr(*follow, "autoSelectImages", true);
 			}
 
 			if (behavior.animation.empty() or result->animations.find(behavior.animation) == result->animations.end())

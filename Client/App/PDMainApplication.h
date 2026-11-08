@@ -35,6 +35,7 @@ public:
 	void startScene(std::vector<PDSceneEntry> const& entries);
 	void stopScene();
 	void reshuffle();
+	void force(PDForce const& request);
 	void requestExit();
 
 	void reloadPack(std::string const& packPath);
@@ -49,6 +50,7 @@ private:
 	void handleMessage(UINT message, LPARAM lParam);
 	std::vector<PDRect> walkableRects() const;
 	void applyPendingScene();
+	void applyPendingForces();
 	void applyPendingPacks();
 
 	PDDiagnostics m_diagnostics;
@@ -71,6 +73,7 @@ private:
 	std::mutex m_sceneMutex;
 	std::vector<PDSceneEntry> m_pendingEntries;
 	bool m_pendingApply = false;
+	std::vector<PDForce> m_pendingForces;
 
 	std::mutex m_packsMutex;
 	std::vector<std::string> m_pendingPacks;

@@ -17,15 +17,22 @@ struct PDPonyBehaviorData
 	std::string animation;
 	std::string movement;
 	std::string linkedBehavior;
+	std::string followTarget;
+	std::string followMoving;
+	std::string followStopped;
 
 	float chance = 0.0f;
 	float durationMinSeconds = 0.0f;
 	float durationMaxSeconds = 0.0f;
 	float speedPxPerSec = 0.0f;
+	float followOffsetX = 0.0f;
+	float followOffsetY = 0.0f;
 	int group = 0;
 	bool special = false;
 	bool skip = false;
 	bool preventAnimationLoop = false;
+	bool followMirror = false;
+	bool followAutoImages = true;
 };
 
 struct PDPonyBehaviorGroup

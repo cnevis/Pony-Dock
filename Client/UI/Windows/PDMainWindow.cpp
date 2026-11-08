@@ -572,6 +572,8 @@ void PDMainWindow::drawSceneView()
 		return;
 	}
 
+	drawForceBar();
+
 	constexpr float rowHeight = 56.0f;
 	std::size_t removeIndex = m_scene.size();
 
@@ -698,6 +700,96 @@ void PDMainWindow::removeSceneEntry(std::size_t index)
 	}
 
 	m_scene.erase(m_scene.begin() + (std::ptrdiff_t)index);
+}
+
+void PDMainWindow::drawForceBar()
+{
+	PDForce request;
+
+	request.pony = m_forcePony;
+	request.target = m_forceTarget;
+
+	ImGui::PushID("force");
+	beginToolbar();
+	ImGui::BeginDisabled(not m_app.isRunning());
+
+	forceCombo("Random pony", &m_forcePony);
+	ImGui::SameLine();
+	forceCombo("Random target", &m_forceTarget);
+	ImGui::SameLine();
+
+	if (ImGui::Button("Chase"))
+	{
+		request.action = PDForceAction::Chase;
+		m_app.force(request);
+	}
+
+	ImGui::SameLine();
+
+	if (ImGui::Button("Follow"))
+	{
+		request.action = PDForceAction::Follow;
+		m_app.force(request);
+	}
+
+	ImGui::SameLine();
+
+	if (ImGui::Button("Interact"))
+	{
+		request.action = PDForceAction::Interact;
+		m_app.force(request);
+	}
+
+	ImGui::EndDisabled();
+	endToolbar();
+	ImGui::PopID();
+}
+
+void PDMainWindow::forceCombo(char const* label, std::string* id)
+{
+	std::string preview = label;
+	bool found = false;
+
+	for (PDSceneEntry const& entry : m_scene)
+	{
+		if (entry.id == *id)
+		{
+			preview = entry.displayName;
+			found = true;
+		}
+	}
+
+	if (not found)
+	{
+		id->clear();
+	}
+
+	ImGui::PushID(label);
+	ImGui::SetNextItemWidth(130.0f);
+
+	if (ImGui::BeginCombo("##pony", preview.c_str()))
+	{
+		if (ImGui::Selectable(label, id->empty()))
+		{
+			id->clear();
+		}
+
+		for (std::size_t i = 0; i < m_scene.size(); i += 1)
+		{
+			ImGui::PushID((int)i);
+
+			if (ImGui::Selectable(m_scene[i].displayName.c_str(), m_scene[i].id == *id))
+			{
+				*id = m_scene[i].id;
+			}
+
+			ImGui::PopID();
+		}
+
+		ImGui::EndCombo();
+	}
+
+	ImGui::PopID();
 }
 
 int PDMainWindow::gridColumns(float available, float* result)
@@ -1005,6 +1097,7 @@ void PDMainWindow::drawFeaturesView()
 	changed = ImGui::Checkbox("Extended behaviors", &value.extended) or changed;
 	changed = ImGui::Checkbox("Linked behaviors", &value.linked) or changed;
 	changed = ImGui::Checkbox("Interactions", &value.interactions) or changed;
+	changed = ImGui::Checkbox("Cursor chasing", &value.chasing) or changed;
 	changed = ImGui::Checkbox("Dragging", &value.dragging) or changed;
 	changed = ImGui::Checkbox("Names on hover", &value.names) or changed;
 
