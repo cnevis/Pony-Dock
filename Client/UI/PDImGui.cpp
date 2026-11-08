@@ -100,10 +100,15 @@ bool PDImGui::initialize(
 
 	if (length > 0 and length < MAX_PATH)
 	{
-		std::string const fontPath = pathString(std::filesystem::path(windowsDirectory) / "Fonts" / "segoeui.ttf");
+		std::filesystem::path const fonts = std::filesystem::path(windowsDirectory) / "Fonts";
+		std::string const fontPath = pathString(fonts / "segoeui.ttf");
+		std::string const symbolPath = pathString(fonts / "seguisym.ttf");
 
 		if (ImFont* font = ImGui::GetIO().Fonts->AddFontFromFileTTF(fontPath.c_str(), 16.0f))
 		{
+			ImFontConfig config;
+			config.MergeMode = true;
+			ImGui::GetIO().Fonts->AddFontFromFileTTF(symbolPath.c_str(), 16.0f, &config);
 			ImGui::GetIO().FontDefault = font;
 		}
 	}
