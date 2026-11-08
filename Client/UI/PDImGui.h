@@ -10,7 +10,7 @@ class PDImGui
 public:
 	void setFrameCallback(std::function<void()> callback);
 
-	bool initialize(HINSTANCE instance, const char *title, int width, int height, HICON icon = nullptr, int minWidth = 0, int minHeight = 0);
+	bool initialize(HINSTANCE instance, char const* title, int width, int height, HICON icon = nullptr, int minWidth = 0, int minHeight = 0);
 	void shutdown();
 
 	bool pumpMessages();
@@ -23,13 +23,13 @@ public:
 		return m_window;
 	}
 
-	ID3D11Device *device() const
+	ID3D11Device* device() const
 	{
 		return m_device;
 	}
 
 private:
-	static PDImGui *s_instance;
+	static PDImGui* s_instance;
 
 	static LRESULT CALLBACK staticWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
 	LRESULT handleMessage(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
@@ -48,10 +48,10 @@ private:
 	int m_minClientWidth = 0;
 	int m_minClientHeight = 0;
 
-	ID3D11Device *m_device = nullptr;
-	ID3D11DeviceContext *m_deviceContext = nullptr;
-	IDXGISwapChain *m_swapChain = nullptr;
-	ID3D11RenderTargetView *m_renderTargetView = nullptr;
+	ID3D11Device* m_device = nullptr;
+	ID3D11DeviceContext* m_deviceContext = nullptr;
+	IDXGISwapChain* m_swapChain = nullptr;
+	ID3D11RenderTargetView* m_renderTargetView = nullptr;
 
 	std::function<void()> m_frameCallback;
 };

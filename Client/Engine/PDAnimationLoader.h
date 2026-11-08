@@ -4,4 +4,4 @@
 
 #include <string>
 
-bool loadAnimationClip(std::string const &animPath, PDAnimationClip &outClip, std::string &outError);
+bool loadAnimationClip(std::string const& animPath, PDAnimationClip* result, std::string* error);

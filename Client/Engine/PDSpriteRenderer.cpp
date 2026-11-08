@@ -30,11 +30,11 @@ static std::string_view const PixelShaderSource = R"(
 		}
 	)";
 
-bool PDSpriteRenderer::initialize(ID3D11Device *device)
+bool PDSpriteRenderer::initialize(ID3D11Device* device)
 {
-	ID3DBlob *vertexBlob = nullptr;
-	ID3DBlob *pixelBlob = nullptr;
-	ID3DBlob *errorBlob = nullptr;
+	ID3DBlob* vertexBlob = nullptr;
+	ID3DBlob* pixelBlob = nullptr;
+	ID3DBlob* errorBlob = nullptr;
 
 	HRESULT const vertexResult = D3DCompile(
 		VertexShaderSource.data(),
@@ -179,7 +179,7 @@ void PDSpriteRenderer::shutdown()
 	}
 }
 
-void PDSpriteRenderer::begin(ID3D11DeviceContext *context, int screenWidth, int screenHeight)
+void PDSpriteRenderer::begin(ID3D11DeviceContext* context, int screenWidth, int screenHeight)
 {
 	m_context = context;
 	m_screenWidth = screenWidth;
@@ -199,7 +199,7 @@ void PDSpriteRenderer::begin(ID3D11DeviceContext *context, int screenWidth, int 
 }
 
 void PDSpriteRenderer::draw(
-	ID3D11ShaderResourceView *texture,
+	ID3D11ShaderResourceView* texture,
 	float x,
 	float y,
 	float width,
@@ -214,20 +214,17 @@ void PDSpriteRenderer::draw(
 		return;
 	}
 
-	auto const toNdcX = [this](float pixelX)
-	{
-		return pixelX / static_cast<float>(m_screenWidth) * 2.0f - 1.0f;
-	};
-	auto const toNdcY = [this](float pixelY)
-	{
-		return 1.0f - pixelY / static_cast<float>(m_screenHeight) * 2.0f;
-	};
+	float const left = x / (float)m_screenWidth * 2.0f - 1.0f;
+	float const right = (x + width) / (float)m_screenWidth * 2.0f - 1.0f;
+	float const top = 1.0f - y / (float)m_screenHeight * 2.0f;
+	float const bottom = 1.0f - (y + height) / (float)m_screenHeight * 2.0f;
 
-	PDVertex2D const vertices[4] = {
-		{toNdcX(x), toNdcY(y), u0, v0},
-		{toNdcX(x + width), toNdcY(y), u1, v0},
-		{toNdcX(x), toNdcY(y + height), u0, v1},
-		{toNdcX(x + width), toNdcY(y + height), u1, v1},
+	PDVertex2D const vertices[4] =
+	{
+		{left, top, u0, v0},
+		{right, top, u1, v0},
+		{left, bottom, u0, v1},
+		{right, bottom, u1, v1},
 	};
 
 	D3D11_MAPPED_SUBRESOURCE mapped;

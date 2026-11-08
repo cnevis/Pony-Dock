@@ -7,7 +7,6 @@ struct PDOverlayMouse
 {
 	int x = 0;
 	int y = 0;
-	bool down = false;
 	bool pressed = false;
 	bool released = false;
 };
@@ -26,12 +25,12 @@ public:
 	void beginFrame();
 	void endFrame();
 
-	ID3D11Device *device() const
+	ID3D11Device* device() const
 	{
 		return m_device;
 	}
 
-	ID3D11DeviceContext *context() const
+	ID3D11DeviceContext* context() const
 	{
 		return m_deviceContext;
 	}
@@ -76,8 +75,8 @@ private:
 	bool m_mousePressed = false;
 	bool m_mouseReleased = false;
 
-	ID3D11Device *m_device = nullptr;
-	ID3D11DeviceContext *m_deviceContext = nullptr;
-	IDXGISwapChain *m_swapChain = nullptr;
-	ID3D11RenderTargetView *m_renderTargetView = nullptr;
+	ID3D11Device* m_device = nullptr;
+	ID3D11DeviceContext* m_deviceContext = nullptr;
+	IDXGISwapChain* m_swapChain = nullptr;
+	ID3D11RenderTargetView* m_renderTargetView = nullptr;
 };

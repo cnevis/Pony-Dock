@@ -7,5 +7,5 @@ struct PDRect
 	float width = 0.0f;
 	float height = 0.0f;
 
-	bool operator==(PDRect const &other) const = default;
+	bool operator==(PDRect const& other) const = default;
 };

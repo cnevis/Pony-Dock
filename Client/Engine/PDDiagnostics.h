@@ -10,8 +10,8 @@
 class PDDiagnostics
 {
 public:
-	void write(std::string const &message);
-	void writeOnce(std::string const &key, std::string const &message);
+	void write(std::string const& message);
+	void writeOnce(std::string const& key, std::string const& message);
 
 	std::vector<std::string> lines() const;
 	std::vector<std::pair<std::string, int>> repeats() const;

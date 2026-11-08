@@ -93,7 +93,7 @@ void PDMainApplication::runOverlay(HINSTANCE instance)
 
 		std::chrono::steady_clock::time_point const now = std::chrono::steady_clock::now();
 		float const elapsedSeconds = std::chrono::duration<float>(now - lastTick).count();
-		float const deltaSeconds = elapsedSeconds < MaxDeltaSeconds ? elapsedSeconds : MaxDeltaSeconds;
+		float const deltaSeconds = std::min(elapsedSeconds, 0.1f);
 		lastTick = now;
 
 		PDOverlayMouse const mouse = m_overlay.pollMouse();
@@ -116,7 +116,7 @@ std::vector<PDRect> PDMainApplication::walkableRects() const
 {
 	std::vector<PDRect> rects;
 
-	for (PDMonitor const &monitor : m_monitors)
+	for (PDMonitor const& monitor : m_monitors)
 	{
 		if (not m_settings.appFlag("monitor." + monitor.device, true))
 		{
@@ -124,10 +124,10 @@ std::vector<PDRect> PDMainApplication::walkableRects() const
 		}
 
 		PDRect rect;
-		rect.x = static_cast<float>(monitor.x - m_overlay.originX());
-		rect.y = static_cast<float>(monitor.y - m_overlay.originY());
-		rect.width = static_cast<float>(monitor.width);
-		rect.height = static_cast<float>(monitor.height);
+		rect.x = (float)(monitor.x - m_overlay.originX());
+		rect.y = (float)(monitor.y - m_overlay.originY());
+		rect.width = (float)monitor.width;
+		rect.height = (float)monitor.height;
 		rects.push_back(rect);
 	}
 
@@ -136,13 +136,13 @@ std::vector<PDRect> PDMainApplication::walkableRects() const
 		return rects;
 	}
 
-	PDMonitor const &fallback = m_monitors.front();
+	PDMonitor const& fallback = m_monitors.front();
 
 	PDRect rect;
-	rect.x = static_cast<float>(fallback.x - m_overlay.originX());
-	rect.y = static_cast<float>(fallback.y - m_overlay.originY());
-	rect.width = static_cast<float>(fallback.width);
-	rect.height = static_cast<float>(fallback.height);
+	rect.x = (float)(fallback.x - m_overlay.originX());
+	rect.y = (float)(fallback.y - m_overlay.originY());
+	rect.width = (float)fallback.width;
+	rect.height = (float)fallback.height;
 	rects.push_back(rect);
 
 	return rects;
@@ -169,7 +169,7 @@ void PDMainApplication::applyPendingScene()
 
 	float x = 0.0f;
 
-	for (PDSceneEntry const &entry : entries)
+	for (PDSceneEntry const& entry : entries)
 	{
 		for (int i = 0; i < entry.quantity; i += 1)
 		{
@@ -179,7 +179,7 @@ void PDMainApplication::applyPendingScene()
 	}
 }
 
-void PDMainApplication::startScene(std::vector<PDSceneEntry> const &entries)
+void PDMainApplication::startScene(std::vector<PDSceneEntry> const& entries)
 {
 	{
 		std::lock_guard<std::mutex> const lock(m_sceneMutex);
@@ -222,13 +222,13 @@ void PDMainApplication::applyPendingPacks()
 		m_pendingPacks.clear();
 	}
 
-	for (std::string const &path : paths)
+	for (std::string const& path : paths)
 	{
 		m_scene.reloadPack(path);
 	}
 }
 
-void PDMainApplication::reloadPack(std::string const &packPath)
+void PDMainApplication::reloadPack(std::string const& packPath)
 {
 	std::lock_guard<std::mutex> const lock(m_packsMutex);
 

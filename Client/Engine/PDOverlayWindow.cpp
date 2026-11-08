@@ -111,8 +111,8 @@ void PDOverlayWindow::beginFrame()
 	m_deviceContext->ClearRenderTargetView(m_renderTargetView, clearColor);
 
 	D3D11_VIEWPORT viewport = {};
-	viewport.Width = static_cast<float>(m_width);
-	viewport.Height = static_cast<float>(m_height);
+	viewport.Width = (float)m_width;
+	viewport.Height = (float)m_height;
 	viewport.MaxDepth = 1.0f;
 	m_deviceContext->RSSetViewports(1, &viewport);
 }
@@ -207,7 +207,7 @@ void PDOverlayWindow::destroyRenderTarget()
 
 LRESULT CALLBACK PDOverlayWindow::staticWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
-	PDOverlayWindow *const instance = reinterpret_cast<PDOverlayWindow *>(GetWindowLongPtr(window, GWLP_USERDATA));
+	PDOverlayWindow* const instance = reinterpret_cast<PDOverlayWindow*>(GetWindowLongPtr(window, GWLP_USERDATA));
 
 	if (instance != nullptr)
 	{
@@ -283,7 +283,6 @@ PDOverlayMouse PDOverlayWindow::pollMouse()
 	PDOverlayMouse mouse;
 	mouse.x = point.x - m_originX;
 	mouse.y = point.y - m_originY;
-	mouse.down = m_mouseDown;
 	mouse.pressed = m_mousePressed;
 	mouse.released = m_mouseReleased;
 
@@ -305,7 +304,7 @@ void PDOverlayWindow::setInteractive(bool interactive)
 
 	if (interactive)
 	{
-		style &= ~static_cast<LONG_PTR>(WS_EX_TRANSPARENT);
+		style &= ~(LONG_PTR)WS_EX_TRANSPARENT;
 	}
 	else
 	{

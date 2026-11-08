@@ -4,6 +4,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cassert>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -25,16 +26,19 @@ static bool finiteNumber(nlohmann::json const& value)
 		and number <= std::numeric_limits<float>::max();
 }
 
-bool loadAnimationClip(std::string const &animPath, PDAnimationClip &outClip, std::string &outError)
+bool loadAnimationClip(std::string const& animPath, PDAnimationClip* result, std::string* error)
 {
-	outClip = PDAnimationClip();
-	outError.clear();
+	assert(result != nullptr);
+	assert(error != nullptr);
+
+	*result = PDAnimationClip();
+	error->clear();
 
 	std::ifstream stream(nativePath(animPath), std::ios::binary);
 
 	if (not stream)
 	{
-		outError = "cannot open " + animPath;
+		*error = "cannot open " + animPath;
 
 		return false;
 	}
@@ -45,16 +49,16 @@ bool loadAnimationClip(std::string const &animPath, PDAnimationClip &outClip, st
 	{
 		stream >> document;
 	}
-	catch (nlohmann::json::exception const& error)
+	catch (nlohmann::json::exception const& e)
 	{
-		outError = std::string("parse error in ") + animPath + ": " + error.what();
+		*error = std::string("parse error in ") + animPath + ": " + e.what();
 
 		return false;
 	}
 
 	if (not document.is_object())
 	{
-		outError = animPath + " is not a JSON object";
+		*error = animPath + " is not a JSON object";
 
 		return false;
 	}
@@ -63,14 +67,14 @@ bool loadAnimationClip(std::string const &animPath, PDAnimationClip &outClip, st
 
 	if (atlasSize == document.end() or not atlasSize->is_array() or atlasSize->size() != 2)
 	{
-		outError = animPath + " has a missing or invalid atlasSize";
+		*error = animPath + " has a missing or invalid atlasSize";
 
 		return false;
 	}
 
 	if (not finiteNumber((*atlasSize)[0]) or not finiteNumber((*atlasSize)[1]))
 	{
-		outError = animPath + " has a missing or invalid atlasSize";
+		*error = animPath + " has a missing or invalid atlasSize";
 
 		return false;
 	}
@@ -80,33 +84,33 @@ bool loadAnimationClip(std::string const &animPath, PDAnimationClip &outClip, st
 
 	if (atlasWidth <= 0.0f or atlasHeight <= 0.0f)
 	{
-		outError = animPath + " has a non-positive atlasSize";
+		*error = animPath + " has a non-positive atlasSize";
 
 		return false;
 	}
 
 	if (not document.contains("atlas") or not document["atlas"].is_string())
 	{
-		outError = animPath + " has a missing or invalid atlas";
+		*error = animPath + " has a missing or invalid atlas";
 
 		return false;
 	}
 
 	std::filesystem::path const directory = nativePath(animPath).parent_path();
-	outClip.atlasPath = pathString((directory / nativePath(document["atlas"].get<std::string>())).lexically_normal());
+	result->atlasPath = pathString((directory / nativePath(document["atlas"].get<std::string>())).lexically_normal());
 
 	if (not document.contains("frames") or not document["frames"].is_array() or document["frames"].empty())
 	{
-		outError = animPath + " has no frames";
+		*error = animPath + " has no frames";
 
 		return false;
 	}
 
-	for (nlohmann::json const &frameValue : document["frames"])
+	for (nlohmann::json const& frameValue : document["frames"])
 	{
 		if (not frameValue.is_object() or not frameValue.contains("rect"))
 		{
-			outError = animPath + " has a frame with no rect";
+			*error = animPath + " has a frame with no rect";
 
 			return false;
 		}
@@ -115,7 +119,7 @@ bool loadAnimationClip(std::string const &animPath, PDAnimationClip &outClip, st
 
 		if (not rect.is_array() or rect.size() != 4)
 		{
-			outError = animPath + " has a frame with a malformed rect";
+			*error = animPath + " has a frame with a malformed rect";
 
 			return false;
 		}
@@ -124,7 +128,7 @@ bool loadAnimationClip(std::string const &animPath, PDAnimationClip &outClip, st
 		{
 			if (not finiteNumber(value))
 			{
-				outError = animPath + " has a frame with an invalid rect number";
+				*error = animPath + " has a frame with an invalid rect number";
 
 				return false;
 			}
@@ -137,14 +141,14 @@ bool loadAnimationClip(std::string const &animPath, PDAnimationClip &outClip, st
 
 		if (width <= 0.0f or height <= 0.0f)
 		{
-			outError = animPath + " has a frame with a non-positive size";
+			*error = animPath + " has a frame with a non-positive size";
 
 			return false;
 		}
 
 		if (x < 0.0f or y < 0.0f or x + width > atlasWidth or y + height > atlasHeight)
 		{
-			outError = animPath + " has a frame rect outside the atlas";
+			*error = animPath + " has a frame rect outside the atlas";
 
 			return false;
 		}
@@ -155,7 +159,7 @@ bool loadAnimationClip(std::string const &animPath, PDAnimationClip &outClip, st
 		{
 			if (not finiteNumber(frameValue["durationMs"]))
 			{
-				outError = animPath + " has a frame with an invalid duration";
+				*error = animPath + " has a frame with an invalid duration";
 
 				return false;
 			}
@@ -172,10 +176,8 @@ bool loadAnimationClip(std::string const &animPath, PDAnimationClip &outClip, st
 		frame.height = height;
 		frame.durationSeconds = durationSeconds > MinFrameSeconds ? durationSeconds : MinFrameSeconds;
 
-		outClip.frames.push_back(frame);
+		result->frames.push_back(frame);
 	}
-
-	outClip.loop = not document.contains("loop") or not document["loop"].is_boolean() or document["loop"].get<bool>();
 
 	float pivotX = 0.0f;
 	float pivotY = 0.0f;
@@ -186,14 +188,14 @@ bool loadAnimationClip(std::string const &animPath, PDAnimationClip &outClip, st
 
 		if (not pivot.is_array() or pivot.size() != 2)
 		{
-			outError = animPath + " has an invalid pivot";
+			*error = animPath + " has an invalid pivot";
 
 			return false;
 		}
 
 		if (not finiteNumber(pivot[0]) or not finiteNumber(pivot[1]))
 		{
-			outError = animPath + " has an invalid pivot number";
+			*error = animPath + " has an invalid pivot number";
 
 			return false;
 		}
@@ -204,13 +206,13 @@ bool loadAnimationClip(std::string const &animPath, PDAnimationClip &outClip, st
 
 	if (pivotX == 0.0f and pivotY == 0.0f)
 	{
-		pivotX = outClip.frames.front().width * 0.5f;
-		pivotY = outClip.frames.front().height * 0.5f;
+		pivotX = result->frames.front().width * 0.5f;
+		pivotY = result->frames.front().height * 0.5f;
 	}
 
-	outClip.pivotX = pivotX;
-	outClip.pivotY = pivotY;
-	outClip.valid = true;
+	result->pivotX = pivotX;
+	result->pivotY = pivotY;
+	result->valid = true;
 
 	return true;
 }

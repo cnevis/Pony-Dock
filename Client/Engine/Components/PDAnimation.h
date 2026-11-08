@@ -6,7 +6,7 @@ struct PDAnimationClip;
 
 struct PDAnimation
 {
-	PDAnimationClip const *clip = nullptr;
+	PDAnimationClip const* clip = nullptr;
 	std::string name;
 	int frame = 0;
 	float elapsedSeconds = 0.0f;

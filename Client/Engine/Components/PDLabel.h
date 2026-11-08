@@ -6,6 +6,6 @@ class PDTexture;
 
 struct PDLabel
 {
-	PDTexture const *texture = nullptr;
+	PDTexture const* texture = nullptr;
 	std::string text;
 };

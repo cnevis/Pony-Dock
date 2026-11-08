@@ -109,7 +109,7 @@ void PDScene::reloadPack(std::string const& packPath)
 	PDPonyPackData loaded;
 	std::string error;
 
-	if (not loadPonyPack(key, loaded, error))
+	if (not loadPonyPack(key, &loaded, &error))
 	{
 		m_diagnostics->write("Pack reload failed: " + error);
 
@@ -212,7 +212,7 @@ PDPonyPackData const* PDScene::pack(std::string const& packPath)
 	PDPonyPackData loaded;
 	std::string error;
 
-	if (not loadPonyPack(key, loaded, error))
+	if (not loadPonyPack(key, &loaded, &error))
 	{
 		m_diagnostics->writeOnce(key, "Pack load failed: " + error);
 		m_packs.emplace(key, PDPonyPackData());
@@ -383,8 +383,7 @@ void PDScene::enterBehavior(entt::entity entity, std::size_t index, int depth)
 
 	state.index = index;
 	state.linkDepth = depth;
-	state.timer = std::max(0.25f, behavior.durationMinSeconds + m_random(m_rng) *
-		(std::max(behavior.durationMinSeconds, behavior.durationMaxSeconds) - behavior.durationMinSeconds));
+	state.timer = std::max(0.25f, behavior.durationMinSeconds + m_random(m_rng) * (behavior.durationMaxSeconds - behavior.durationMinSeconds));
 
 	if (behavior.group != 0)
 	{
@@ -557,8 +556,7 @@ void PDScene::updateBehavior(entt::entity entity, float deltaSeconds)
 		PDSprite const& sprite = m_registry.get<PDSprite>(entity);
 
 		state.grabbed = false;
-		state.monitor = monitorAt(position.x - sprite.offsetX + sprite.width * 0.5f,
-			position.y - sprite.offsetY + sprite.height * 0.5f);
+		state.monitor = monitorAt(position.x - sprite.offsetX + sprite.width * 0.5f, position.y - sprite.offsetY + sprite.height * 0.5f);
 		advanceBehavior(entity);
 
 		return;

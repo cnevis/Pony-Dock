@@ -5,11 +5,14 @@
 
 #include <commdlg.h>
 
+#include <cassert>
 #include <filesystem>
 #include <vector>
 
-bool openFileDialog(HWND owner, const char *title, std::string &outPath)
+bool openFileDialog(HWND owner, char const* title, std::string* result)
 {
+	assert(result != nullptr);
+
 	std::vector<wchar_t> buffer(MAX_PATH * 4, L'\0');
 	std::wstring const caption = toWide(title);
 
@@ -19,7 +22,7 @@ bool openFileDialog(HWND owner, const char *title, std::string &outPath)
 	dialog.lpstrFilter = L"Pony Dock config (*.json)\0*.json\0All files (*.*)\0*.*\0";
 	dialog.nFilterIndex = 1;
 	dialog.lpstrFile = buffer.data();
-	dialog.nMaxFile = static_cast<DWORD>(buffer.size());
+	dialog.nMaxFile = (DWORD)buffer.size();
 	dialog.lpstrTitle = caption.c_str();
 	dialog.lpstrDefExt = L"json";
 	dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_EXPLORER;
@@ -29,20 +32,22 @@ bool openFileDialog(HWND owner, const char *title, std::string &outPath)
 		return false;
 	}
 
-	outPath = pathString(std::filesystem::path(buffer.data()));
+	*result = pathString(std::filesystem::path(buffer.data()));
 
 	return true;
 }
 
-bool saveFileDialog(HWND owner, const char *title, const char *suggestedName, std::string &outPath)
+bool saveFileDialog(HWND owner, char const* title, char const* suggestedName, std::string* result)
 {
+	assert(result != nullptr);
+
 	std::vector<wchar_t> buffer(MAX_PATH * 4, L'\0');
 	std::wstring const caption = toWide(title);
 	std::wstring const suggested = toWide(suggestedName);
 
-	for (std::size_t index = 0; index < suggested.size() and index + 1 < buffer.size(); index += 1)
+	for (std::size_t i = 0; i < suggested.size() and i + 1 < buffer.size(); i += 1)
 	{
-		buffer[index] = suggested[index];
+		buffer[i] = suggested[i];
 	}
 
 	OPENFILENAMEW dialog = {};
@@ -51,7 +56,7 @@ bool saveFileDialog(HWND owner, const char *title, const char *suggestedName, st
 	dialog.lpstrFilter = L"Pony Dock config (*.json)\0*.json\0All files (*.*)\0*.*\0";
 	dialog.nFilterIndex = 1;
 	dialog.lpstrFile = buffer.data();
-	dialog.nMaxFile = static_cast<DWORD>(buffer.size());
+	dialog.nMaxFile = (DWORD)buffer.size();
 	dialog.lpstrTitle = caption.c_str();
 	dialog.lpstrDefExt = L"json";
 	dialog.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_EXPLORER;
@@ -61,7 +66,7 @@ bool saveFileDialog(HWND owner, const char *title, const char *suggestedName, st
 		return false;
 	}
 
-	outPath = pathString(std::filesystem::path(buffer.data()));
+	*result = pathString(std::filesystem::path(buffer.data()));
 
 	return true;
 }

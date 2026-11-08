@@ -21,11 +21,10 @@ struct PDAnimationClip
 	std::vector<PDAnimationFrame> frames;
 
 	std::string atlasPath;
-	PDTexture const *atlas = nullptr;
+	PDTexture const* atlas = nullptr;
 
 	float pivotX = 0.0f;
 	float pivotY = 0.0f;
 
-	bool loop = true;
 	bool valid = false;
 };

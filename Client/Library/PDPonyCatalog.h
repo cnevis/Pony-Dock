@@ -19,9 +19,9 @@ struct PDPonyGroup
 class PDPonyCatalog
 {
 public:
-	void load(std::string const &packsRoot);
+	void load(std::string const& packsRoot);
 
-	std::vector<PDPonyGroup> const &groups() const
+	std::vector<PDPonyGroup> const& groups() const
 	{
 		return m_groups;
 	}

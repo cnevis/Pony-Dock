@@ -6,14 +6,15 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <limits>
 
-static std::string stringOr(nlohmann::json const &object, char const *key, std::string const &fallback)
+static std::string stringOr(nlohmann::json const& object, char const* key, std::string const& fallback)
 {
-	auto const found = object.find(key);
+	nlohmann::json::const_iterator const found = object.find(key);
 
 	return found != object.end() and found->is_string() ? found->get<std::string>() : fallback;
 }
@@ -56,24 +57,24 @@ static int intOr(nlohmann::json const& object, char const* key, int fallback)
 	return found->get<int>();
 }
 
-static bool boolOr(nlohmann::json const &object, char const *key, bool fallback)
+static bool boolOr(nlohmann::json const& object, char const* key, bool fallback)
 {
-	auto const found = object.find(key);
+	nlohmann::json::const_iterator const found = object.find(key);
 
 	return found != object.end() and found->is_boolean() ? found->get<bool>() : fallback;
 }
 
-static std::vector<std::string> stringArray(nlohmann::json const &object, char const *key)
+static std::vector<std::string> stringArray(nlohmann::json const& object, char const* key)
 {
 	std::vector<std::string> values;
-	auto const found = object.find(key);
+	nlohmann::json::const_iterator const found = object.find(key);
 
 	if (found == object.end() or not found->is_array())
 	{
 		return values;
 	}
 
-	for (nlohmann::json const &entry : *found)
+	for (nlohmann::json const& entry : *found)
 	{
 		if (entry.is_string())
 		{
@@ -84,7 +85,7 @@ static std::vector<std::string> stringArray(nlohmann::json const &object, char c
 	return values;
 }
 
-static std::string absolutePath(std::filesystem::path const &packPath, std::string const &relative)
+static std::string absolutePath(std::filesystem::path const& packPath, std::string const& relative)
 {
 	if (relative.empty())
 	{
@@ -94,9 +95,9 @@ static std::string absolutePath(std::filesystem::path const &packPath, std::stri
 	return pathString((packPath / nativePath(relative)).lexically_normal());
 }
 
-static bool groupHasBehavior(PDPonyPackData const &data, int group)
+static bool groupHasBehavior(PDPonyPackData const& data, int group)
 {
-	for (PDPonyBehaviorData const &behavior : data.behaviors)
+	for (PDPonyBehaviorData const& behavior : data.behaviors)
 	{
 		if (behavior.group == group)
 		{
@@ -107,9 +108,9 @@ static bool groupHasBehavior(PDPonyPackData const &data, int group)
 	return false;
 }
 
-static bool groupIsKnown(PDPonyPackData const &data, int group)
+static bool groupIsKnown(PDPonyPackData const& data, int group)
 {
-	for (PDPonyBehaviorGroup const &entry : data.groups)
+	for (PDPonyBehaviorGroup const& entry : data.groups)
 	{
 		if (entry.id == group)
 		{
@@ -120,13 +121,13 @@ static bool groupIsKnown(PDPonyPackData const &data, int group)
 	return false;
 }
 
-static void readBehaviorGroups(nlohmann::json const &document, PDPonyPackData &outData)
+static void readBehaviorGroups(nlohmann::json const& document, PDPonyPackData* data)
 {
-	auto const declared = document.find("behaviorGroups");
+	nlohmann::json::const_iterator const declared = document.find("behaviorGroups");
 
 	if (declared != document.end() and declared->is_array())
 	{
-		for (nlohmann::json const &entry : *declared)
+		for (nlohmann::json const& entry : *declared)
 		{
 			if (not entry.is_object())
 			{
@@ -137,48 +138,48 @@ static void readBehaviorGroups(nlohmann::json const &document, PDPonyPackData &o
 			group.id = intOr(entry, "id", 0);
 			group.name = stringOr(entry, "name", std::string());
 
-			if (group.id == 0 or groupIsKnown(outData, group.id) or not groupHasBehavior(outData, group.id))
+			if (group.id == 0 or groupIsKnown(*data, group.id) or not groupHasBehavior(*data, group.id))
 			{
 				continue;
 			}
 
-			outData.groups.push_back(std::move(group));
+			data->groups.push_back(std::move(group));
 		}
 	}
 
-	std::size_t const declaredCount = outData.groups.size();
+	std::size_t const declaredCount = data->groups.size();
 
-	for (PDPonyBehaviorData const &behavior : outData.behaviors)
+	for (PDPonyBehaviorData const& behavior : data->behaviors)
 	{
-		if (behavior.group == 0 or groupIsKnown(outData, behavior.group))
+		if (behavior.group == 0 or groupIsKnown(*data, behavior.group))
 		{
 			continue;
 		}
 
 		PDPonyBehaviorGroup group;
 		group.id = behavior.group;
-		outData.groups.push_back(std::move(group));
+		data->groups.push_back(std::move(group));
 	}
 
 	std::sort(
-		outData.groups.begin() + static_cast<std::ptrdiff_t>(declaredCount),
-		outData.groups.end(),
-		[](PDPonyBehaviorGroup const &a, PDPonyBehaviorGroup const &b)
+		data->groups.begin() + (std::ptrdiff_t)declaredCount,
+		data->groups.end(),
+		[](PDPonyBehaviorGroup const& a, PDPonyBehaviorGroup const& b)
 	{
 		return a.id < b.id;
 	});
 }
 
-static void readInteractions(nlohmann::json const &document, PDPonyPackData &outData)
+static void readInteractions(nlohmann::json const& document, PDPonyPackData* data)
 {
-	auto const interactions = document.find("interactions");
+	nlohmann::json::const_iterator const interactions = document.find("interactions");
 
 	if (interactions == document.end() or not interactions->is_array())
 	{
 		return;
 	}
 
-	for (nlohmann::json const &entry : *interactions)
+	for (nlohmann::json const& entry : *interactions)
 	{
 		if (not entry.is_object())
 		{
@@ -199,13 +200,16 @@ static void readInteractions(nlohmann::json const &document, PDPonyPackData &out
 			continue;
 		}
 
-		outData.interactions.push_back(std::move(interaction));
+		data->interactions.push_back(std::move(interaction));
 	}
 }
 
-bool loadPonyPack(std::string const &packPath, PDPonyPackData &outData, std::string &outError)
+bool loadPonyPack(std::string const& packPath, PDPonyPackData* result, std::string* error)
 {
-	outData = PDPonyPackData();
+	assert(result != nullptr);
+	assert(error != nullptr);
+
+	*result = PDPonyPackData();
 
 	std::filesystem::path const root = nativePath(packPath);
 	std::filesystem::path const jsonPath = nativePath(ponyPackDocumentPath(packPath));
@@ -214,7 +218,7 @@ bool loadPonyPack(std::string const &packPath, PDPonyPackData &outData, std::str
 
 	if (not stream)
 	{
-		outError = "cannot open " + pathString(jsonPath);
+		*error = "cannot open " + pathString(jsonPath);
 
 		return false;
 	}
@@ -225,39 +229,39 @@ bool loadPonyPack(std::string const &packPath, PDPonyPackData &outData, std::str
 	{
 		stream >> document;
 	}
-	catch (nlohmann::json::exception const& error)
+	catch (nlohmann::json::exception const& e)
 	{
-		outError = std::string("parse error in ") + pathString(jsonPath) + ": " + error.what();
+		*error = std::string("parse error in ") + pathString(jsonPath) + ": " + e.what();
 
 		return false;
 	}
 
 	if (not document.is_object())
 	{
-		outError = pathString(jsonPath) + " is not a JSON object";
+		*error = pathString(jsonPath) + " is not a JSON object";
 
 		return false;
 	}
 
-	outData.packPath = pathString(root.lexically_normal());
-	outData.id = stringOr(document, "id", pathString(root.filename()));
-	outData.name = stringOr(document, "name", outData.id);
-	outData.previewPath = absolutePath(root, stringOr(document, "preview", std::string()));
+	result->packPath = pathString(root.lexically_normal());
+	result->id = stringOr(document, "id", pathString(root.filename()));
+	result->name = stringOr(document, "name", result->id);
+	result->previewPath = absolutePath(root, stringOr(document, "preview", std::string()));
 
-	auto const animations = document.find("animations");
+	nlohmann::json::const_iterator const animations = document.find("animations");
 
 	if (animations != document.end() and animations->is_object())
 	{
-		for (auto const &entry : animations->items())
+		for (nlohmann::json::const_iterator it = animations->begin(); it != animations->end(); ++it)
 		{
-			if (not entry.value().is_object())
+			if (not it.value().is_object())
 			{
 				continue;
 			}
 
 			PDPonyAnimationRef reference;
-			reference.left = absolutePath(root, stringOr(entry.value(), "left", std::string()));
-			reference.right = absolutePath(root, stringOr(entry.value(), "right", std::string()));
+			reference.left = absolutePath(root, stringOr(it.value(), "left", std::string()));
+			reference.right = absolutePath(root, stringOr(it.value(), "right", std::string()));
 
 			if (reference.left.empty() and reference.right.empty())
 			{
@@ -274,22 +278,22 @@ bool loadPonyPack(std::string const &packPath, PDPonyPackData &outData, std::str
 				reference.right = reference.left;
 			}
 
-			outData.animations.emplace(entry.key(), std::move(reference));
+			result->animations.emplace(it.key(), std::move(reference));
 		}
 	}
 
-	if (outData.animations.empty())
+	if (result->animations.empty())
 	{
-		outError = pathString(jsonPath) + " has no usable animations";
+		*error = pathString(jsonPath) + " has no usable animations";
 
 		return false;
 	}
 
-	auto const behaviors = document.find("behaviors");
+	nlohmann::json::const_iterator const behaviors = document.find("behaviors");
 
 	if (behaviors != document.end() and behaviors->is_array())
 	{
-		for (nlohmann::json const &entry : *behaviors)
+		for (nlohmann::json const& entry : *behaviors)
 		{
 			if (not entry.is_object())
 			{
@@ -309,7 +313,7 @@ bool loadPonyPack(std::string const &packPath, PDPonyPackData &outData, std::str
 			behavior.skip = boolOr(entry, "skip", false);
 			behavior.preventAnimationLoop = boolOr(entry, "preventAnimationLoop", false);
 
-			auto const duration = entry.find("durationMs");
+			nlohmann::json::const_iterator const duration = entry.find("durationMs");
 
 			if (duration != entry.end() and duration->is_object())
 			{
@@ -322,26 +326,26 @@ bool loadPonyPack(std::string const &packPath, PDPonyPackData &outData, std::str
 				behavior.durationMaxSeconds = behavior.durationMinSeconds;
 			}
 
-			if (behavior.animation.empty() or outData.animations.find(behavior.animation) == outData.animations.end())
+			if (behavior.animation.empty() or result->animations.find(behavior.animation) == result->animations.end())
 			{
 				continue;
 			}
 
-			outData.behaviors.push_back(std::move(behavior));
+			result->behaviors.push_back(std::move(behavior));
 		}
 	}
 
-	if (outData.behaviors.empty())
+	if (result->behaviors.empty())
 	{
-		outError = pathString(jsonPath) + " has no usable behaviors";
+		*error = pathString(jsonPath) + " has no usable behaviors";
 
 		return false;
 	}
 
-	readBehaviorGroups(document, outData);
-	readInteractions(document, outData);
+	readBehaviorGroups(document, result);
+	readInteractions(document, result);
 
-	outData.valid = true;
+	result->valid = true;
 
 	return true;
 }

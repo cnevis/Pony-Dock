@@ -4,5 +4,5 @@ struct PDPonyPackData;
 
 struct PDPack
 {
-	PDPonyPackData const *data = nullptr;
+	PDPonyPackData const* data = nullptr;
 };

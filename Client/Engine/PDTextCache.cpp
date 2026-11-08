@@ -4,18 +4,19 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <vector>
 
-static std::vector<unsigned char> rasterize(
-	ID3D11Device *device,
-	ID2D1Factory *factory,
-	IDWriteTextLayout *layout,
+static std::vector<std::uint8_t> rasterize(
+	ID3D11Device* device,
+	ID2D1Factory* factory,
+	IDWriteTextLayout* layout,
 	int width,
 	int height)
 {
 	D3D11_TEXTURE2D_DESC targetDesc = {};
-	targetDesc.Width = static_cast<UINT>(width);
-	targetDesc.Height = static_cast<UINT>(height);
+	targetDesc.Width = (UINT)width;
+	targetDesc.Height = (UINT)height;
 	targetDesc.MipLevels = 1;
 	targetDesc.ArraySize = 1;
 	targetDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
@@ -23,16 +24,16 @@ static std::vector<unsigned char> rasterize(
 	targetDesc.Usage = D3D11_USAGE_DEFAULT;
 	targetDesc.BindFlags = D3D11_BIND_RENDER_TARGET;
 
-	ID3D11Texture2D *target = nullptr;
+	ID3D11Texture2D* target = nullptr;
 	device->CreateTexture2D(&targetDesc, nullptr, &target);
 
 	if (target == nullptr)
 	{
-		return std::vector<unsigned char>();
+		return std::vector<std::uint8_t>();
 	}
 
-	IDXGISurface *surface = nullptr;
-	ID2D1RenderTarget *renderTarget = nullptr;
+	IDXGISurface* surface = nullptr;
+	ID2D1RenderTarget* renderTarget = nullptr;
 
 	if (SUCCEEDED(target->QueryInterface(IID_PPV_ARGS(&surface))))
 	{
@@ -48,11 +49,11 @@ static std::vector<unsigned char> rasterize(
 	{
 		target->Release();
 
-		return std::vector<unsigned char>();
+		return std::vector<std::uint8_t>();
 	}
 
-	ID2D1SolidColorBrush *pill = nullptr;
-	ID2D1SolidColorBrush *ink = nullptr;
+	ID2D1SolidColorBrush* pill = nullptr;
+	ID2D1SolidColorBrush* ink = nullptr;
 	renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.09f, 0.09f, 0.11f, 0.72f), &pill);
 	renderTarget->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), &ink);
 
@@ -62,7 +63,7 @@ static std::vector<unsigned char> rasterize(
 
 	if (pill != nullptr and ink != nullptr)
 	{
-		D2D1_RECT_F const bounds = D2D1::RectF(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height));
+		D2D1_RECT_F const bounds = D2D1::RectF(0.0f, 0.0f, (float)width, (float)height);
 
 		renderTarget->FillRoundedRectangle(D2D1::RoundedRect(bounds, 7.0f, 7.0f), pill);
 		renderTarget->DrawTextLayout(D2D1::Point2F(7.0f, 3.0f), layout, ink);
@@ -86,13 +87,13 @@ static std::vector<unsigned char> rasterize(
 	targetDesc.BindFlags = 0;
 	targetDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
 
-	ID3D11Texture2D *staging = nullptr;
+	ID3D11Texture2D* staging = nullptr;
 	device->CreateTexture2D(&targetDesc, nullptr, &staging);
 
-	ID3D11DeviceContext *context = nullptr;
+	ID3D11DeviceContext* context = nullptr;
 	device->GetImmediateContext(&context);
 
-	std::vector<unsigned char> pixels;
+	std::vector<std::uint8_t> pixels;
 	D3D11_MAPPED_SUBRESOURCE mapped = {};
 
 	if (SUCCEEDED(drawn) and staging != nullptr and context != nullptr)
@@ -101,24 +102,24 @@ static std::vector<unsigned char> rasterize(
 
 		if (SUCCEEDED(context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped)))
 		{
-			pixels.resize(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4);
+			pixels.resize((std::size_t)width * (std::size_t)height * 4);
 
 			for (int i = 0; i < height; i += 1)
 			{
-				unsigned char const *row = static_cast<unsigned char const *>(mapped.pData) + static_cast<std::size_t>(i) * mapped.RowPitch;
+				std::uint8_t const* row = static_cast<std::uint8_t const*>(mapped.pData) + (std::size_t)i * mapped.RowPitch;
 
 				for (int j = 0; j < width; j += 1)
 				{
-					unsigned char const *source = row + static_cast<std::size_t>(j) * 4;
-					unsigned char *destination = pixels.data() + (static_cast<std::size_t>(i) * static_cast<std::size_t>(width) + static_cast<std::size_t>(j)) * 4;
+					std::uint8_t const* source = row + (std::size_t)j * 4;
+					std::uint8_t* destination = pixels.data() + ((std::size_t)i * (std::size_t)width + (std::size_t)j) * 4;
 					int const alpha = source[3];
 
 					for (int k = 0; k < 3; k += 1)
 					{
-						destination[k] = alpha == 0 ? 0 : static_cast<unsigned char>(std::min(255, source[2 - k] * 255 / alpha));
+						destination[k] = alpha == 0 ? 0 : (std::uint8_t)std::min(255, source[2 - k] * 255 / alpha);
 					}
 
-					destination[3] = static_cast<unsigned char>(alpha);
+					destination[3] = (std::uint8_t)alpha;
 				}
 			}
 
@@ -159,7 +160,7 @@ PDTextCache::~PDTextCache()
 	}
 }
 
-void PDTextCache::initialize(ID3D11Device *device)
+void PDTextCache::initialize(ID3D11Device* device)
 {
 	m_device = device;
 
@@ -171,7 +172,7 @@ void PDTextCache::initialize(ID3D11Device *device)
 	HRESULT const created = DWriteCreateFactory(
 		DWRITE_FACTORY_TYPE_SHARED,
 		__uuidof(IDWriteFactory),
-		reinterpret_cast<IUnknown **>(&m_writeFactory));
+		reinterpret_cast<IUnknown**>(&m_writeFactory));
 
 	if (FAILED(created))
 	{
@@ -189,9 +190,9 @@ void PDTextCache::initialize(ID3D11Device *device)
 		&m_textFormat);
 }
 
-PDTexture const *PDTextCache::texture(std::string const &text)
+PDTexture const* PDTextCache::texture(std::string const& text)
 {
-	auto const existing = m_textures.find(text);
+	std::unordered_map<std::string, PDTexture>::iterator const existing = m_textures.find(text);
 
 	if (existing != m_textures.end())
 	{
@@ -204,11 +205,11 @@ PDTexture const *PDTextCache::texture(std::string const &text)
 	}
 
 	std::wstring const wide = toWide(text);
-	IDWriteTextLayout *layout = nullptr;
+	IDWriteTextLayout* layout = nullptr;
 
 	HRESULT const created = m_writeFactory->CreateTextLayout(
 		wide.c_str(),
-		static_cast<UINT32>(wide.size()),
+		(UINT32)wide.size(),
 		m_textFormat,
 		480.0f,
 		60.0f,
@@ -222,9 +223,9 @@ PDTexture const *PDTextCache::texture(std::string const &text)
 	DWRITE_TEXT_METRICS metrics = {};
 	layout->GetMetrics(&metrics);
 
-	int const width = static_cast<int>(std::ceil(metrics.width + 7.0f * 2.0f));
-	int const height = static_cast<int>(std::ceil(metrics.height + 3.0f * 2.0f));
-	std::vector<unsigned char> const pixels = rasterize(m_device, m_d2dFactory, layout, width, height);
+	int const width = (int)std::ceil(metrics.width + 7.0f * 2.0f);
+	int const height = (int)std::ceil(metrics.height + 3.0f * 2.0f);
+	std::vector<std::uint8_t> const pixels = rasterize(m_device, m_d2dFactory, layout, width, height);
 	layout->Release();
 
 	if (pixels.empty())
@@ -232,7 +233,5 @@ PDTexture const *PDTextCache::texture(std::string const &text)
 		return nullptr;
 	}
 
-	auto const inserted = m_textures.emplace(text, PDTexture(m_device, pixels.data(), width, height));
-
-	return &inserted.first->second;
+	return &m_textures.emplace(text, PDTexture(m_device, pixels.data(), width, height)).first->second;
 }

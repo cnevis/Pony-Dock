@@ -13,10 +13,10 @@ struct PDRowCard
 
 void beginToolbar();
 void endToolbar();
-void toolbarSummary(const char *text);
+void toolbarSummary(char const* text);
 
-bool beginModal(const char *title, ImVec2 size);
+bool beginModal(char const* title, ImVec2 size);
 void endModal();
 
 PDRowCard beginRowCard(float height, bool selected);
-void endRowCard(PDRowCard const &card, float height, float gap);
+void endRowCard(PDRowCard const& card, float height, float gap);

@@ -11,7 +11,7 @@
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-PDImGui *PDImGui::s_instance = nullptr;
+PDImGui* PDImGui::s_instance = nullptr;
 
 void PDImGui::setFrameCallback(std::function<void()> callback)
 {
@@ -20,7 +20,7 @@ void PDImGui::setFrameCallback(std::function<void()> callback)
 
 bool PDImGui::initialize(
 	HINSTANCE instance,
-	const char *title,
+	char const* title,
 	int width,
 	int height,
 	HICON icon,
@@ -338,7 +338,7 @@ LRESULT PDImGui::handleMessage(HWND window, UINT message, WPARAM wParam, LPARAM 
 				RECT minRect = {0, 0, m_minClientWidth, m_minClientHeight};
 				AdjustWindowRect(&minRect, WS_OVERLAPPEDWINDOW, FALSE);
 
-				MINMAXINFO *const minMaxInfo = reinterpret_cast<MINMAXINFO *>(lParam);
+				MINMAXINFO* const minMaxInfo = reinterpret_cast<MINMAXINFO*>(lParam);
 				minMaxInfo->ptMinTrackSize.x = minRect.right - minRect.left;
 				minMaxInfo->ptMinTrackSize.y = minRect.bottom - minRect.top;
 			}

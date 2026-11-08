@@ -9,7 +9,7 @@
 #include <fstream>
 #include <unordered_map>
 
-void PDPonyCatalog::load(std::string const &packsRoot)
+void PDPonyCatalog::load(std::string const& packsRoot)
 {
 	m_groups.clear();
 
@@ -67,7 +67,7 @@ void PDPonyCatalog::load(std::string const &packsRoot)
 		pack.packPath = pathString(packPath);
 		pack.previewPath = preview.empty() ? std::string() : pathString(packPath / nativePath(preview));
 
-		auto const existing = groupByName.find(displayName);
+		std::unordered_map<std::string, std::size_t>::iterator const existing = groupByName.find(displayName);
 
 		if (existing == groupByName.end())
 		{
@@ -84,7 +84,7 @@ void PDPonyCatalog::load(std::string const &packsRoot)
 		}
 	}
 
-	std::sort(m_groups.begin(), m_groups.end(), [](PDPonyGroup const &a, PDPonyGroup const &b)
+	std::sort(m_groups.begin(), m_groups.end(), [](PDPonyGroup const& a, PDPonyGroup const& b)
 	{
 		return a.displayName < b.displayName;
 	});

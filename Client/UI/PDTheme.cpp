@@ -2,7 +2,7 @@
 
 void PDTheme::apply()
 {
-	ImGuiStyle &style = ImGui::GetStyle();
+	ImGuiStyle& style = ImGui::GetStyle();
 
 	style.Colors[ImGuiCol_WindowBg] = Window;
 	style.Colors[ImGuiCol_ChildBg] = Clear;

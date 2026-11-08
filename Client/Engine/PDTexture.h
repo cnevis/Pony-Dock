@@ -2,28 +2,29 @@
 
 #include <d3d11.h>
 
+#include <cstdint>
 #include <string>
 
 class PDTexture
 {
 public:
 	PDTexture() = default;
-	PDTexture(ID3D11Device *device, std::string const &path);
-	PDTexture(ID3D11Device *device, unsigned char const *pixels, int width, int height);
+	PDTexture(ID3D11Device* device, std::string const& path);
+	PDTexture(ID3D11Device* device, std::uint8_t const* pixels, int width, int height);
 	~PDTexture();
 
-	PDTexture(PDTexture const &) = delete;
-	PDTexture &operator=(PDTexture const &) = delete;
+	PDTexture(PDTexture const&) = delete;
+	PDTexture& operator=(PDTexture const&) = delete;
 
-	PDTexture(PDTexture &&other) noexcept;
-	PDTexture &operator=(PDTexture &&other) noexcept;
+	PDTexture(PDTexture&& other) noexcept;
+	PDTexture& operator=(PDTexture&& other) noexcept;
 
 	bool valid() const
 	{
 		return m_view != nullptr;
 	}
 
-	ID3D11ShaderResourceView *view() const
+	ID3D11ShaderResourceView* view() const
 	{
 		return m_view;
 	}
@@ -41,7 +42,7 @@ public:
 private:
 	void release();
 
-	ID3D11ShaderResourceView *m_view = nullptr;
+	ID3D11ShaderResourceView* m_view = nullptr;
 	int m_width = 0;
 	int m_height = 0;
 };

@@ -14,43 +14,44 @@
 #include <imgui_stdlib.h>
 
 #include <algorithm>
+#include <cassert>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <limits>
 
-static nlohmann::json const &behaviorField(nlohmann::json const &behavior, char const *key)
+static nlohmann::json const& behaviorField(nlohmann::json const& behavior, char const* key)
 {
 	static nlohmann::json const missing;
-	auto const found = behavior.find(key);
+	nlohmann::json::const_iterator const found = behavior.find(key);
 
 	return found != behavior.end() ? *found : missing;
 }
 
-static std::string fieldString(nlohmann::json const &behavior, char const *key)
+static std::string fieldString(nlohmann::json const& behavior, char const* key)
 {
-	nlohmann::json const &value = behaviorField(behavior, key);
+	nlohmann::json const& value = behaviorField(behavior, key);
 
 	return value.is_string() ? value.get<std::string>() : std::string();
 }
 
-static double fieldNumber(nlohmann::json const &behavior, char const *key)
+static double fieldNumber(nlohmann::json const& behavior, char const* key)
 {
-	nlohmann::json const &value = behaviorField(behavior, key);
+	nlohmann::json const& value = behaviorField(behavior, key);
 
 	return value.is_number() ? value.get<double>() : 0.0;
 }
 
-static bool fieldBool(nlohmann::json const &behavior, char const *key)
+static bool fieldBool(nlohmann::json const& behavior, char const* key)
 {
-	nlohmann::json const &value = behaviorField(behavior, key);
+	nlohmann::json const& value = behaviorField(behavior, key);
 
 	return value.is_boolean() and value.get<bool>();
 }
 
-static int fieldGroup(nlohmann::json const &behavior)
+static int fieldGroup(nlohmann::json const& behavior)
 {
-	nlohmann::json const &value = behaviorField(behavior, "group");
+	nlohmann::json const& value = behaviorField(behavior, "group");
 
 	if (not value.is_number_integer())
 	{
@@ -62,9 +63,9 @@ static int fieldGroup(nlohmann::json const &behavior)
 	return group >= std::numeric_limits<int>::min() and group <= std::numeric_limits<int>::max() ? (int)group : 0;
 }
 
-static double fieldDuration(nlohmann::json const &behavior, char const *key)
+static double fieldDuration(nlohmann::json const& behavior, char const* key)
 {
-	nlohmann::json const &duration = behaviorField(behavior, "durationMs");
+	nlohmann::json const& duration = behaviorField(behavior, "durationMs");
 
 	if (not duration.is_object())
 	{
@@ -74,8 +75,10 @@ static double fieldDuration(nlohmann::json const &behavior, char const *key)
 	return fieldNumber(duration, key);
 }
 
-static bool readDocument(std::string const &path, nlohmann::json &outDocument)
+static bool readDocument(std::string const& path, nlohmann::json* result)
 {
+	assert(result != nullptr);
+
 	std::ifstream stream(nativePath(path), std::ios::binary);
 
 	if (not stream)
@@ -108,12 +111,12 @@ static bool readDocument(std::string const &path, nlohmann::json &outDocument)
 		}
 	}
 
-	outDocument = std::move(document);
+	*result = std::move(document);
 
 	return true;
 }
 
-PDBehaviorEditor::PDBehaviorEditor(PDMainApplication &app, PDImGui &host, PDDiagnostics &diagnostics)
+PDBehaviorEditor::PDBehaviorEditor(PDMainApplication& app, PDImGui& host, PDDiagnostics& diagnostics)
 	: m_app(app),
 	  m_host(host),
 	  m_diagnostics(diagnostics)
@@ -132,18 +135,18 @@ PDBehaviorEditor::PDBehaviorEditor(PDMainApplication &app, PDImGui &host, PDDiag
 		"All"};
 }
 
-bool PDBehaviorEditor::open(std::string const &packPath, std::string const &displayName)
+bool PDBehaviorEditor::open(std::string const& packPath, std::string const& displayName)
 {
 	nlohmann::json document;
 
-	if (not readDocument(ponyPackDocumentPath(packPath), document))
+	if (not readDocument(ponyPackDocumentPath(packPath), &document))
 	{
 		return false;
 	}
 
 	m_document = std::move(document);
 	m_base = nlohmann::json();
-	readDocument(pathString(nativePath(packPath) / "pony.json"), m_base);
+	readDocument(pathString(nativePath(packPath) / "pony.json"), &m_base);
 
 	m_previews.clear();
 	m_packPath = packPath;
@@ -173,10 +176,10 @@ void PDBehaviorEditor::close()
 	m_status.clear();
 }
 
-nlohmann::json const &PDBehaviorEditor::behaviors() const
+nlohmann::json const& PDBehaviorEditor::behaviors() const
 {
 	static nlohmann::json const empty = nlohmann::json::array();
-	auto const found = m_document.find("behaviors");
+	nlohmann::json::const_iterator const found = m_document.find("behaviors");
 
 	return found != m_document.end() and found->is_array() ? *found : empty;
 }
@@ -191,31 +194,31 @@ void PDBehaviorEditor::rebuildIndex()
 	m_animations.clear();
 	m_baseByIndex.clear();
 
-	nlohmann::json const &pool = behaviors();
+	nlohmann::json const& pool = behaviors();
 
-	auto const animations = m_document.find("animations");
+	nlohmann::json::const_iterator const animations = m_document.find("animations");
 
 	if (animations != m_document.end() and animations->is_object())
 	{
-		for (auto const &entry : animations->items())
+		for (nlohmann::json::const_iterator it = animations->begin(); it != animations->end(); ++it)
 		{
-			if (not entry.value().is_object())
+			if (not it.value().is_object())
 			{
 				continue;
 			}
 
-			if (fieldString(entry.value(), "left").empty() and fieldString(entry.value(), "right").empty())
+			if (fieldString(it.value(), "left").empty() and fieldString(it.value(), "right").empty())
 			{
 				continue;
 			}
 
-			m_animations.push_back(entry.key());
+			m_animations.push_back(it.key());
 		}
 	}
 
 	std::sort(m_animations.begin(), m_animations.end());
 
-	for (nlohmann::json const &entry : pool)
+	for (nlohmann::json const& entry : pool)
 	{
 		std::string const link = fieldString(entry, "linkedBehavior");
 
@@ -227,19 +230,19 @@ void PDBehaviorEditor::rebuildIndex()
 		m_behaviorIds.push_back(fieldString(entry, "id"));
 	}
 
-	auto const basePool = m_base.find("behaviors");
+	nlohmann::json::const_iterator const basePool = m_base.find("behaviors");
 
-	for (std::string const &id : m_behaviorIds)
+	for (std::string const& id : m_behaviorIds)
 	{
 		std::size_t match = NoBaseIndex;
 
 		if (basePool != m_base.end() and basePool->is_array())
 		{
-			for (std::size_t index = 0; index < basePool->size(); index += 1)
+			for (std::size_t i = 0; i < basePool->size(); i += 1)
 			{
-				if (fieldString((*basePool)[index], "id") == id)
+				if (fieldString((*basePool)[i], "id") == id)
 				{
-					match = index;
+					match = i;
 
 					break;
 				}
@@ -252,11 +255,11 @@ void PDBehaviorEditor::rebuildIndex()
 	std::sort(m_linkTargets.begin(), m_linkTargets.end());
 	m_linkTargets.erase(std::unique(m_linkTargets.begin(), m_linkTargets.end()), m_linkTargets.end());
 
-	auto const declared = m_document.find("behaviorGroups");
+	nlohmann::json::const_iterator const declared = m_document.find("behaviorGroups");
 
 	if (declared != m_document.end() and declared->is_array())
 	{
-		for (nlohmann::json const &entry : *declared)
+		for (nlohmann::json const& entry : *declared)
 		{
 			if (not entry.is_object())
 			{
@@ -288,7 +291,7 @@ void PDBehaviorEditor::rebuildIndex()
 		}
 	}
 
-	for (nlohmann::json const &behavior : pool)
+	for (nlohmann::json const& behavior : pool)
 	{
 		int const group = fieldGroup(behavior);
 
@@ -302,7 +305,7 @@ void PDBehaviorEditor::rebuildIndex()
 
 	m_mode = m_modes.empty() ? 0 : m_modes.front().id;
 
-	for (PDBehaviorMode const &mode : m_modes)
+	for (PDBehaviorMode const& mode : m_modes)
 	{
 		if (mode.id == previousMode)
 		{
@@ -313,27 +316,27 @@ void PDBehaviorEditor::rebuildIndex()
 	}
 }
 
-nlohmann::json &PDBehaviorEditor::behavior(std::size_t index)
+nlohmann::json& PDBehaviorEditor::behavior(std::size_t index)
 {
 	return m_document["behaviors"][index];
 }
 
-nlohmann::json const *PDBehaviorEditor::baseValue(std::size_t index, char const *key) const
+nlohmann::json const* PDBehaviorEditor::baseValue(std::size_t index, char const* key) const
 {
 	if (index >= m_baseByIndex.size() or m_baseByIndex[index] == NoBaseIndex)
 	{
 		return nullptr;
 	}
 
-	auto const basePool = m_base.find("behaviors");
+	nlohmann::json::const_iterator const basePool = m_base.find("behaviors");
 
 	if (basePool == m_base.end() or not basePool->is_array())
 	{
 		return nullptr;
 	}
 
-	nlohmann::json const &entry = (*basePool)[m_baseByIndex[index]];
-	auto const found = entry.find(key);
+	nlohmann::json const& entry = (*basePool)[m_baseByIndex[index]];
+	nlohmann::json::const_iterator const found = entry.find(key);
 
 	return found != entry.end() ? &(*found) : nullptr;
 }
@@ -344,7 +347,7 @@ void PDBehaviorEditor::commit()
 
 	rebuildIndex();
 
-	if (not writePonyPackOverride(m_packPath, m_document.dump(2), error))
+	if (not writePonyPackOverride(m_packPath, m_document.dump(2), &error))
 	{
 		m_status = error;
 		m_diagnostics.write("Behavior editor: " + error);
@@ -357,9 +360,9 @@ void PDBehaviorEditor::commit()
 	m_app.reloadPack(m_packPath);
 }
 
-void PDBehaviorEditor::revertField(std::size_t index, char const *key)
+void PDBehaviorEditor::revertField(std::size_t index, char const* key)
 {
-	nlohmann::json const *const base = baseValue(index, key);
+	nlohmann::json const* const base = baseValue(index, key);
 
 	if (base == nullptr)
 	{
@@ -377,7 +380,7 @@ void PDBehaviorEditor::resetToPack()
 {
 	std::string error;
 
-	if (not removePonyPackOverride(m_packPath, error))
+	if (not removePonyPackOverride(m_packPath, &error))
 	{
 		m_status = error;
 		m_diagnostics.write("Behavior editor: " + error);
@@ -397,9 +400,9 @@ void PDBehaviorEditor::resetToPack()
 	m_app.reloadPack(m_packPath);
 }
 
-char const *PDBehaviorEditor::modeName(int id) const
+char const* PDBehaviorEditor::modeName(int id) const
 {
-	for (PDBehaviorMode const &mode : m_modes)
+	for (PDBehaviorMode const& mode : m_modes)
 	{
 		if (mode.id == id)
 		{
@@ -410,14 +413,14 @@ char const *PDBehaviorEditor::modeName(int id) const
 	return nullptr;
 }
 
-bool PDBehaviorEditor::isLinkTarget(std::string const &id) const
+bool PDBehaviorEditor::isLinkTarget(std::string const& id) const
 {
 	return std::find(m_linkTargets.begin(), m_linkTargets.end(), id) != m_linkTargets.end();
 }
 
 bool PDBehaviorEditor::eligibleInMode(std::size_t index, int mode) const
 {
-	nlohmann::json const &behavior = behaviors()[index];
+	nlohmann::json const& behavior = behaviors()[index];
 
 	if (fieldNumber(behavior, "chance") <= 0.0 or fieldBool(behavior, "skip"))
 	{
@@ -433,20 +436,20 @@ double PDBehaviorEditor::eligibleTotal(int mode) const
 {
 	double total = 0.0;
 
-	for (std::size_t index = 0; index < behaviors().size(); index += 1)
+	for (std::size_t i = 0; i < behaviors().size(); i += 1)
 	{
-		if (eligibleInMode(index, mode))
+		if (eligibleInMode(i, mode))
 		{
-			total += fieldNumber(behaviors()[index], "chance");
+			total += fieldNumber(behaviors()[i], "chance");
 		}
 	}
 
 	return total;
 }
 
-PDBehaviorPreview const *PDBehaviorEditor::preview(std::string const &animation)
+PDBehaviorPreview const* PDBehaviorEditor::preview(std::string const& animation)
 {
-	auto const cached = m_previews.find(animation);
+	std::unordered_map<std::string, PDBehaviorPreview>::const_iterator const cached = m_previews.find(animation);
 
 	if (cached != m_previews.end())
 	{
@@ -461,12 +464,12 @@ PDBehaviorPreview const *PDBehaviorEditor::preview(std::string const &animation)
 	m_previewBudget -= 1;
 
 	PDBehaviorPreview entry;
-	auto const animations = m_document.find("animations");
+	nlohmann::json::const_iterator const animations = m_document.find("animations");
 	std::string relative;
 
 	if (animations != m_document.end() and animations->is_object())
 	{
-		auto const found = animations->find(animation);
+		nlohmann::json::const_iterator const found = animations->find(animation);
 
 		if (found != animations->end() and found->is_object())
 		{
@@ -491,7 +494,7 @@ PDBehaviorPreview const *PDBehaviorEditor::preview(std::string const &animation)
 	PDAnimationClip clip;
 	std::string error;
 
-	if (loadAnimationClip(path, clip, error) and not clip.frames.empty())
+	if (loadAnimationClip(path, &clip, &error) and not clip.frames.empty())
 	{
 		entry.texture = PDTexture(m_host.device(), clip.atlasPath);
 		entry.u0 = clip.frames.front().u0;
@@ -503,12 +506,12 @@ PDBehaviorPreview const *PDBehaviorEditor::preview(std::string const &animation)
 		entry.valid = entry.texture.valid();
 	}
 
-	PDBehaviorPreview const &stored = m_previews.emplace(animation, std::move(entry)).first->second;
+	PDBehaviorPreview const& stored = m_previews.emplace(animation, std::move(entry)).first->second;
 
 	return stored.valid ? &stored : nullptr;
 }
 
-nlohmann::json &PDBehaviorEditor::behaviorArray()
+nlohmann::json& PDBehaviorEditor::behaviorArray()
 {
 	if (not m_document["behaviors"].is_array())
 	{
@@ -518,7 +521,7 @@ nlohmann::json &PDBehaviorEditor::behaviorArray()
 	return m_document["behaviors"];
 }
 
-std::string PDBehaviorEditor::uniqueId(std::string const &base) const
+std::string PDBehaviorEditor::uniqueId(std::string const& base) const
 {
 	std::string const stem = base.empty() ? std::string("behavior") : base;
 	std::string candidate = stem;
@@ -533,7 +536,7 @@ std::string PDBehaviorEditor::uniqueId(std::string const &base) const
 	return candidate;
 }
 
-std::vector<std::string> PDBehaviorEditor::collectReferences(std::string const &id, bool apply)
+std::vector<std::string> PDBehaviorEditor::collectReferences(std::string const& id, bool apply)
 {
 	std::vector<std::string> found;
 
@@ -542,7 +545,7 @@ std::vector<std::string> PDBehaviorEditor::collectReferences(std::string const &
 		return found;
 	}
 
-	for (nlohmann::json &entry : behaviorArray())
+	for (nlohmann::json& entry : behaviorArray())
 	{
 		if (not entry.is_object())
 		{
@@ -561,7 +564,7 @@ std::vector<std::string> PDBehaviorEditor::collectReferences(std::string const &
 			}
 		}
 
-		auto const follow = entry.find("follow");
+		nlohmann::json::iterator const follow = entry.find("follow");
 
 		if (follow == entry.end() or not follow->is_object())
 		{
@@ -589,11 +592,11 @@ std::vector<std::string> PDBehaviorEditor::collectReferences(std::string const &
 		}
 	}
 
-	auto const effects = m_document.find("effects");
+	nlohmann::json::iterator const effects = m_document.find("effects");
 
 	if (effects != m_document.end() and effects->is_array())
 	{
-		for (nlohmann::json &effect : *effects)
+		for (nlohmann::json& effect : *effects)
 		{
 			if (not effect.is_object() or fieldString(effect, "behavior") != id)
 			{
@@ -609,21 +612,21 @@ std::vector<std::string> PDBehaviorEditor::collectReferences(std::string const &
 		}
 	}
 
-	auto const interactions = m_document.find("interactions");
+	nlohmann::json::iterator const interactions = m_document.find("interactions");
 
 	if (interactions == m_document.end() or not interactions->is_array())
 	{
 		return found;
 	}
 
-	for (nlohmann::json &interaction : *interactions)
+	for (nlohmann::json& interaction : *interactions)
 	{
 		if (not interaction.is_object())
 		{
 			continue;
 		}
 
-		auto const list = interaction.find("behaviors");
+		nlohmann::json::iterator const list = interaction.find("behaviors");
 
 		if (list == interaction.end() or not list->is_array())
 		{
@@ -633,7 +636,7 @@ std::vector<std::string> PDBehaviorEditor::collectReferences(std::string const &
 		nlohmann::json remaining = nlohmann::json::array();
 		bool referenced = false;
 
-		for (nlohmann::json const &value : *list)
+		for (nlohmann::json const& value : *list)
 		{
 			if (value.is_string() and value.get<std::string>() == id)
 			{
@@ -663,7 +666,7 @@ std::vector<std::string> PDBehaviorEditor::collectReferences(std::string const &
 
 void PDBehaviorEditor::addBehavior()
 {
-	nlohmann::json &pool = behaviorArray();
+	nlohmann::json& pool = behaviorArray();
 	nlohmann::json entry = pool.empty() ? nlohmann::json::object() : pool.front();
 
 	entry["id"] = uniqueId("new-behavior");
@@ -677,7 +680,7 @@ void PDBehaviorEditor::addBehavior()
 	entry["preventAnimationLoop"] = false;
 	entry["linkedBehavior"] = nullptr;
 
-	for (char const *key : {"follow", "target", "startSpeech", "endSpeech"})
+	for (char const* key : {"follow", "target", "startSpeech", "endSpeech"})
 	{
 		if (entry.contains(key))
 		{
@@ -696,13 +699,13 @@ void PDBehaviorEditor::addBehavior()
 	}
 
 	pool.push_back(std::move(entry));
-	m_expanded = static_cast<int>(pool.size()) - 1;
+	m_expanded = (int)pool.size() - 1;
 	commit();
 }
 
 void PDBehaviorEditor::duplicateBehavior(std::size_t index)
 {
-	nlohmann::json &pool = behaviorArray();
+	nlohmann::json& pool = behaviorArray();
 
 	if (index >= pool.size())
 	{
@@ -714,7 +717,7 @@ void PDBehaviorEditor::duplicateBehavior(std::size_t index)
 	entry["name"] = fieldString(pool[index], "name") + " copy";
 
 	pool.push_back(std::move(entry));
-	m_expanded = static_cast<int>(pool.size()) - 1;
+	m_expanded = (int)pool.size() - 1;
 	commit();
 }
 
@@ -725,7 +728,7 @@ void PDBehaviorEditor::requestDelete(std::size_t index)
 		return;
 	}
 
-	m_deleteIndex = static_cast<int>(index);
+	m_deleteIndex = (int)index;
 	m_deleteReferences = collectReferences(fieldString(behaviors()[index], "id"), false);
 	m_deleteOpen = true;
 }
@@ -743,7 +746,7 @@ void PDBehaviorEditor::drawDeleteModal()
 		return;
 	}
 
-	if (m_deleteIndex < 0 or m_deleteIndex >= static_cast<int>(behaviors().size()))
+	if (m_deleteIndex < 0 or m_deleteIndex >= (int)behaviors().size())
 	{
 		ImGui::CloseCurrentPopup();
 		endModal();
@@ -751,7 +754,7 @@ void PDBehaviorEditor::drawDeleteModal()
 		return;
 	}
 
-	std::size_t const index = static_cast<std::size_t>(m_deleteIndex);
+	std::size_t const index = (std::size_t)m_deleteIndex;
 	std::string const id = fieldString(behaviors()[index], "id");
 
 	ImGui::PushStyleColor(ImGuiCol_Text, PDTheme::TextDim);
@@ -775,7 +778,7 @@ void PDBehaviorEditor::drawDeleteModal()
 		ImGui::Dummy(ImVec2(0.0f, 6.0f));
 		ImGui::PushStyleColor(ImGuiCol_Text, PDTheme::TextDim);
 
-		for (std::string const &reference : m_deleteReferences)
+		for (std::string const& reference : m_deleteReferences)
 		{
 			ImGui::BulletText("%s", reference.c_str());
 		}
@@ -805,7 +808,7 @@ void PDBehaviorEditor::drawDeleteModal()
 	endModal();
 }
 
-void PDBehaviorEditor::drawFieldLabel(char const *label)
+void PDBehaviorEditor::drawFieldLabel(char const* label)
 {
 	ImGui::AlignTextToFramePadding();
 	ImGui::TextUnformatted(label);
@@ -813,13 +816,13 @@ void PDBehaviorEditor::drawFieldLabel(char const *label)
 	ImGui::SetNextItemWidth(-(ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x));
 }
 
-void PDBehaviorEditor::drawRevertMarker(std::size_t index, char const *key)
+void PDBehaviorEditor::drawRevertMarker(std::size_t index, char const* key)
 {
-	nlohmann::json const *const base = baseValue(index, key);
-	nlohmann::json const &current = behaviorField(behaviors()[index], key);
-	const bool present = not current.is_null();
-	const bool modified = base == nullptr ? present : (not present or *base != current);
-	const float size = ImGui::GetFrameHeight();
+	nlohmann::json const* const base = baseValue(index, key);
+	nlohmann::json const& current = behaviorField(behaviors()[index], key);
+	bool const present = not current.is_null();
+	bool const modified = base == nullptr ? present : (not present or *base != current);
+	float const size = ImGui::GetFrameHeight();
 
 	ImGui::SameLine();
 
@@ -943,33 +946,33 @@ void PDBehaviorEditor::drawGroupField(std::size_t index)
 	int current = 0;
 	int const group = fieldGroup(behaviors()[index]);
 
-	for (std::size_t entry = 0; entry < m_modes.size(); entry += 1)
+	for (std::size_t i = 0; i < m_modes.size(); i += 1)
 	{
 		char label[96];
 		std::snprintf(
 			label,
 			sizeof(label),
 			"%d  -  %s",
-			m_modes[entry].id,
-			m_modes[entry].name.empty() ? "unnamed" : m_modes[entry].name.c_str());
+			m_modes[i].id,
+			m_modes[i].name.empty() ? "unnamed" : m_modes[i].name.c_str());
 		labels.push_back(label);
 
-		if (m_modes[entry].id == group)
+		if (m_modes[i].id == group)
 		{
-			current = static_cast<int>(entry) + 1;
+			current = (int)i + 1;
 		}
 	}
 
-	std::vector<const char *> items;
+	std::vector<char const*> items;
 
-	for (std::string const &label : labels)
+	for (std::string const& label : labels)
 	{
 		items.push_back(label.c_str());
 	}
 
-	if (ImGui::Combo("##v", &current, items.data(), static_cast<int>(items.size())))
+	if (ImGui::Combo("##v", &current, items.data(), (int)items.size()))
 	{
-		behavior(index)["group"] = current == 0 ? 0 : m_modes[static_cast<std::size_t>(current - 1)].id;
+		behavior(index)["group"] = current == 0 ? 0 : m_modes[(std::size_t)(current - 1)].id;
 		commit();
 	}
 
@@ -977,7 +980,7 @@ void PDBehaviorEditor::drawGroupField(std::size_t index)
 	ImGui::PopID();
 }
 
-void PDBehaviorEditor::drawFlagField(std::size_t index, char const *key, char const *label)
+void PDBehaviorEditor::drawFlagField(std::size_t index, char const* key, char const* label)
 {
 	ImGui::PushID(key);
 	ImGui::AlignTextToFramePadding();
@@ -998,9 +1001,9 @@ void PDBehaviorEditor::drawFlagField(std::size_t index, char const *key, char co
 
 void PDBehaviorEditor::drawChoiceField(
 	std::size_t index,
-	char const *key,
-	char const *label,
-	std::vector<std::string> const &options,
+	char const* key,
+	char const* label,
+	std::vector<std::string> const& options,
 	bool allowNone)
 {
 	ImGui::PushID(key);
@@ -1016,11 +1019,11 @@ void PDBehaviorEditor::drawChoiceField(
 
 	int current = 0;
 
-	for (std::string const &option : options)
+	for (std::string const& option : options)
 	{
 		if (option == value)
 		{
-			current = static_cast<int>(labels.size());
+			current = (int)labels.size();
 		}
 
 		labels.push_back(option);
@@ -1028,18 +1031,18 @@ void PDBehaviorEditor::drawChoiceField(
 
 	if (not value.empty() and std::find(options.begin(), options.end(), value) == options.end())
 	{
-		current = static_cast<int>(labels.size());
+		current = (int)labels.size();
 		labels.push_back(value);
 	}
 
-	std::vector<const char *> items;
+	std::vector<char const*> items;
 
-	for (std::string const &entry : labels)
+	for (std::string const& entry : labels)
 	{
 		items.push_back(entry.c_str());
 	}
 
-	if (ImGui::Combo("##v", &current, items.data(), static_cast<int>(items.size())))
+	if (ImGui::Combo("##v", &current, items.data(), (int)items.size()))
 	{
 		if (allowNone and current == 0)
 		{
@@ -1047,7 +1050,7 @@ void PDBehaviorEditor::drawChoiceField(
 		}
 		else
 		{
-			behavior(index)[key] = labels[static_cast<std::size_t>(current)];
+			behavior(index)[key] = labels[(std::size_t)current];
 		}
 
 		commit();
@@ -1077,34 +1080,34 @@ void PDBehaviorEditor::drawFields(std::size_t index)
 
 void PDBehaviorEditor::drawBehaviorRow(std::size_t index, double total)
 {
-	nlohmann::json const &behavior = behaviors()[index];
+	nlohmann::json const& behavior = behaviors()[index];
 	std::string const id = fieldString(behavior, "id");
 	std::string const name = fieldString(behavior, "name");
 
-	PDRowCard const card = beginRowCard(ListRowHeight, m_expanded == static_cast<int>(index));
+	PDRowCard const card = beginRowCard(ListRowHeight, m_expanded == (int)index);
 
-	const float lineHeight = ImGui::GetTextLineHeight();
-	const float firstY = card.position.y + (ListRowHeight - lineHeight * 2.0f - 2.0f) * 0.5f;
-	const float textX = card.position.x + 10.0f + PreviewSize + 12.0f;
+	float const lineHeight = ImGui::GetTextLineHeight();
+	float const firstY = card.position.y + (ListRowHeight - lineHeight * 2.0f - 2.0f) * 0.5f;
+	float const textX = card.position.x + 10.0f + PreviewSize + 12.0f;
 
-	ImDrawList *drawList = ImGui::GetWindowDrawList();
+	ImDrawList* drawList = ImGui::GetWindowDrawList();
 
-	const ImVec2 thumbMin(card.position.x + 10.0f, card.position.y + (ListRowHeight - PreviewSize) * 0.5f);
-	const ImVec2 thumbMax(thumbMin.x + PreviewSize, thumbMin.y + PreviewSize);
+	ImVec2 const thumbMin(card.position.x + 10.0f, card.position.y + (ListRowHeight - PreviewSize) * 0.5f);
+	ImVec2 const thumbMax(thumbMin.x + PreviewSize, thumbMin.y + PreviewSize);
 	drawList->AddRectFilled(thumbMin, thumbMax, ImGui::GetColorU32(PDTheme::ThumbBg), 0.0f);
 
 	if (ImGui::IsRectVisible(card.position, card.rectMax))
 	{
-		PDBehaviorPreview const *const frame = preview(fieldString(behavior, "animation"));
+		PDBehaviorPreview const* const frame = preview(fieldString(behavior, "animation"));
 
 		if (frame != nullptr and frame->width > 0.0f and frame->height > 0.0f)
 		{
 			float scale = std::min(PreviewSize / frame->width, PreviewSize / frame->height);
 			scale = std::min(scale, 1.0f);
 
-			const float drawWidth = frame->width * scale;
-			const float drawHeight = frame->height * scale;
-			const ImVec2 imageMin(
+			float const drawWidth = frame->width * scale;
+			float const drawHeight = frame->height * scale;
+			ImVec2 const imageMin(
 				thumbMin.x + (PreviewSize - drawWidth) * 0.5f,
 				thumbMin.y + (PreviewSize - drawHeight) * 0.5f);
 
@@ -1166,7 +1169,7 @@ void PDBehaviorEditor::drawBehaviorRow(std::size_t index, double total)
 		}
 	}
 
-	const float chipWidth = ImGui::CalcTextSize(chip).x;
+	float const chipWidth = ImGui::CalcTextSize(chip).x;
 	drawList->AddText(
 		ImVec2(card.rectMax.x - 10.0f - chipWidth, firstY),
 		ImGui::GetColorU32(chipColor),
@@ -1177,11 +1180,11 @@ void PDBehaviorEditor::drawBehaviorRow(std::size_t index, double total)
 
 	if (group != 0)
 	{
-		char const *const label = modeName(group);
+		char const* const label = modeName(group);
 		char badge[64];
 		std::snprintf(badge, sizeof(badge), "%s", label != nullptr and *label != '\0' ? label : "grouped");
 
-		const float badgeWidth = ImGui::CalcTextSize(badge).x;
+		float const badgeWidth = ImGui::CalcTextSize(badge).x;
 		drawList->AddText(
 			ImVec2(badgeRight - badgeWidth, firstY + lineHeight + 2.0f),
 			ImGui::GetColorU32(PDTheme::AccentText),
@@ -1192,7 +1195,7 @@ void PDBehaviorEditor::drawBehaviorRow(std::size_t index, double total)
 
 	if (fieldBool(behavior, "special"))
 	{
-		const float extWidth = ImGui::CalcTextSize("EXT").x;
+		float const extWidth = ImGui::CalcTextSize("EXT").x;
 		drawList->AddText(
 			ImVec2(badgeRight - extWidth, firstY + lineHeight + 2.0f),
 			ImGui::GetColorU32(PDTheme::TextDim),
@@ -1201,7 +1204,7 @@ void PDBehaviorEditor::drawBehaviorRow(std::size_t index, double total)
 
 	if (card.clicked)
 	{
-		m_expanded = m_expanded == static_cast<int>(index) ? -1 : static_cast<int>(index);
+		m_expanded = m_expanded == (int)index ? -1 : (int)index;
 	}
 
 	endRowCard(card, ListRowHeight, 4.0f);
@@ -1209,12 +1212,12 @@ void PDBehaviorEditor::drawBehaviorRow(std::size_t index, double total)
 
 void PDBehaviorEditor::drawDetail()
 {
-	if (m_expanded < 0 or m_expanded >= static_cast<int>(behaviors().size()))
+	if (m_expanded < 0 or m_expanded >= (int)behaviors().size())
 	{
 		return;
 	}
 
-	std::size_t const index = static_cast<std::size_t>(m_expanded);
+	std::size_t const index = (std::size_t)m_expanded;
 	std::string const id = fieldString(behaviors()[index], "id");
 	std::string const name = fieldString(behaviors()[index], "name");
 
@@ -1324,41 +1327,41 @@ bool PDBehaviorEditor::draw()
 	if (m_modes.size() > 1)
 	{
 		ImGui::SameLine();
-		ImGui::SetNextItemWidth(ModePickerWidth);
+		ImGui::SetNextItemWidth(150.0f);
 
 		std::vector<std::string> labels;
-		std::vector<const char *> items;
+		std::vector<char const*> items;
 		int current = 0;
 
-		for (std::size_t index = 0; index < m_modes.size(); index += 1)
+		for (std::size_t i = 0; i < m_modes.size(); i += 1)
 		{
 			char label[96];
 
-			if (m_modes[index].name.empty())
+			if (m_modes[i].name.empty())
 			{
-				std::snprintf(label, sizeof(label), "Mode %d", m_modes[index].id);
+				std::snprintf(label, sizeof(label), "Mode %d", m_modes[i].id);
 			}
 			else
 			{
-				std::snprintf(label, sizeof(label), "%s", m_modes[index].name.c_str());
+				std::snprintf(label, sizeof(label), "%s", m_modes[i].name.c_str());
 			}
 
 			labels.push_back(label);
 
-			if (m_modes[index].id == m_mode)
+			if (m_modes[i].id == m_mode)
 			{
-				current = static_cast<int>(index);
+				current = (int)i;
 			}
 		}
 
-		for (std::string const &label : labels)
+		for (std::string const& label : labels)
 		{
 			items.push_back(label.c_str());
 		}
 
-		if (ImGui::Combo("##mode", &current, items.data(), static_cast<int>(items.size())))
+		if (ImGui::Combo("##mode", &current, items.data(), (int)items.size()))
 		{
-			m_mode = m_modes[static_cast<std::size_t>(current)].id;
+			m_mode = m_modes[(std::size_t)current].id;
 		}
 	}
 
@@ -1422,13 +1425,13 @@ bool PDBehaviorEditor::draw()
 
 	std::string const filter = toLower(m_search);
 	double const total = eligibleTotal(m_mode);
-	m_previewBudget = PreviewsPerFrame;
+	m_previewBudget = 6;
 
 	ImGui::BeginChild("behaviorList");
 
-	for (std::size_t index = 0; index < behaviors().size(); index += 1)
+	for (std::size_t i = 0; i < behaviors().size(); i += 1)
 	{
-		nlohmann::json const &behavior = behaviors()[index];
+		nlohmann::json const& behavior = behaviors()[i];
 
 		if (not filter.empty())
 		{
@@ -1440,8 +1443,8 @@ bool PDBehaviorEditor::draw()
 			}
 		}
 
-		ImGui::PushID(static_cast<int>(index));
-		drawBehaviorRow(index, total);
+		ImGui::PushID((int)i);
+		drawBehaviorRow(i, total);
 		ImGui::PopID();
 	}
 

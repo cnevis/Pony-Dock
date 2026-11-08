@@ -1,13 +1,13 @@
 #include <Engine/PDTextureCache.h>
 
-void PDTextureCache::initialize(ID3D11Device *device)
+void PDTextureCache::initialize(ID3D11Device* device)
 {
 	m_device = device;
 }
 
-PDTexture const *PDTextureCache::texture(std::string const &path)
+PDTexture const* PDTextureCache::texture(std::string const& path)
 {
-	auto const existing = m_textures.find(path);
+	std::unordered_map<std::string, PDTexture>::iterator const existing = m_textures.find(path);
 
 	if (existing != m_textures.end())
 	{

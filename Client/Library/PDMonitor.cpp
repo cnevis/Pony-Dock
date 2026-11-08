@@ -15,7 +15,7 @@ static BOOL CALLBACK collectMonitor(HMONITOR monitor, HDC, LPRECT, LPARAM payloa
 		return TRUE;
 	}
 
-	std::vector<PDMonitor> &monitors = *reinterpret_cast<std::vector<PDMonitor> *>(payload);
+	std::vector<PDMonitor>& monitors = *reinterpret_cast<std::vector<PDMonitor>*>(payload);
 
 	PDMonitor entry;
 	entry.device = info.szDevice;
@@ -35,7 +35,7 @@ std::vector<PDMonitor> enumerateMonitors()
 	std::vector<PDMonitor> monitors;
 	EnumDisplayMonitors(nullptr, nullptr, collectMonitor, reinterpret_cast<LPARAM>(&monitors));
 
-	std::sort(monitors.begin(), monitors.end(), [](PDMonitor const &a, PDMonitor const &b)
+	std::sort(monitors.begin(), monitors.end(), [](PDMonitor const& a, PDMonitor const& b)
 	{
 		if (a.primary != b.primary)
 		{
@@ -50,16 +50,16 @@ std::vector<PDMonitor> enumerateMonitors()
 		return a.y < b.y;
 	});
 
-	for (std::size_t index = 0; index < monitors.size(); index += 1)
+	for (std::size_t i = 0; i < monitors.size(); i += 1)
 	{
-		PDMonitor &entry = monitors[index];
+		PDMonitor& entry = monitors[i];
 
 		char label[128];
 		std::snprintf(
 			label,
 			sizeof(label),
 			"Display %zu  -  %dx%d%s",
-			index + 1,
+			i + 1,
 			entry.width,
 			entry.height,
 			entry.primary ? "  (primary)" : "");

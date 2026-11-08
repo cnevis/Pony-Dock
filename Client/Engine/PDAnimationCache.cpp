@@ -7,17 +7,17 @@
 
 #include <filesystem>
 
-void PDAnimationCache::initialize(PDTextureCache &textures, PDDiagnostics &diagnostics)
+void PDAnimationCache::initialize(PDTextureCache& textures, PDDiagnostics& diagnostics)
 {
 	m_textures = &textures;
 	m_diagnostics = &diagnostics;
 }
 
-PDAnimationClip const *PDAnimationCache::clip(std::string const &animPath)
+PDAnimationClip const* PDAnimationCache::clip(std::string const& animPath)
 {
 	std::string const key = pathString(nativePath(animPath).lexically_normal());
 
-	auto const existing = m_clips.find(key);
+	std::unordered_map<std::string, PDAnimationClip>::iterator const existing = m_clips.find(key);
 
 	if (existing != m_clips.end())
 	{
@@ -27,7 +27,7 @@ PDAnimationClip const *PDAnimationCache::clip(std::string const &animPath)
 	PDAnimationClip loaded;
 	std::string error;
 
-	if (not loadAnimationClip(key, loaded, error))
+	if (not loadAnimationClip(key, &loaded, &error))
 	{
 		m_diagnostics->writeOnce(key, "Animation load failed: " + error);
 		m_clips.emplace(key, PDAnimationClip());

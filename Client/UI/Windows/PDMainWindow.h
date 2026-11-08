@@ -34,7 +34,7 @@ struct PDCardInput
 class PDMainWindow
 {
 public:
-	PDMainWindow(PDMainApplication &app, PDImGui &host, PDDiagnostics &diagnostics);
+	PDMainWindow(PDMainApplication& app, PDImGui& host, PDDiagnostics& diagnostics);
 
 	void draw();
 
@@ -49,9 +49,7 @@ private:
 	static constexpr float CardPad = 8.0f;
 	static constexpr float CardSpacing = 14.0f;
 	static constexpr float RowPad = 10.0f;
-	static constexpr float ShadowSpread = 6.0f;
 	static constexpr float SettingRowHeight = 48.0f;
-	static constexpr float TargetPickerWidth = 170.0f;
 
 	enum class View
 	{
@@ -70,25 +68,24 @@ private:
 	};
 
 	void drawSidebar(float width, float height);
-	void navItem(const char *label, View view);
+	void navItem(char const* label, View view);
 	void drawRunControl();
-	void setView(View view);
 
 	void drawContent();
 	void drawBrowserView();
 	PDCardInput drawPonyCard(
-		std::string const &name,
-		std::string const &sub,
-		PDTexture const *texture,
+		std::string const& name,
+		std::string const& sub,
+		PDTexture const* texture,
 		bool selected);
-	PDTexture *thumbnail(std::string const &path);
+	PDTexture* thumbnail(std::string const& path);
 
 	void openGroup(std::size_t index, int action);
-	void applyVariant(PDPonyGroup const &group, PDPonyPack const &variant);
-	void openBehaviorEditor(std::string const &packPath, std::string const &displayName);
+	void applyVariant(PDPonyGroup const& group, PDPonyPack const& variant);
+	void openBehaviorEditor(std::string const& packPath, std::string const& displayName);
 
 	void drawSceneView();
-	void addToScene(std::string const &displayName, PDPonyPack const &pack);
+	void addToScene(std::string const& displayName, PDPonyPack const& pack);
 	void removeSceneEntry(std::size_t index);
 	int sceneTotalQuantity() const;
 
@@ -102,14 +99,14 @@ private:
 	void drawTargetModal();
 	void drawVariantModal();
 
-	static int gridColumns(float available, float &outIndent);
+	static int gridColumns(float available, float* result);
 
-	static void addImageFitted(ImDrawList *drawList, PDTexture const *texture, ImVec2 areaMin, ImVec2 areaMax, float margin);
-	static void addShadow(ImDrawList *drawList, ImVec2 rectMin, ImVec2 rectMax);
+	static void addImageFitted(ImDrawList* drawList, PDTexture const* texture, ImVec2 areaMin, ImVec2 areaMax, float margin);
+	static void addShadow(ImDrawList* drawList, ImVec2 rectMin, ImVec2 rectMax);
 
-	PDMainApplication &m_app;
-	PDImGui &m_host;
-	PDDiagnostics &m_diagnostics;
+	PDMainApplication& m_app;
+	PDImGui& m_host;
+	PDDiagnostics& m_diagnostics;
 	View m_activeView = View::Browser;
 
 	PDPonyCatalog m_catalog;

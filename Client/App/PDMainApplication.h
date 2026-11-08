@@ -31,21 +31,19 @@ public:
 		return m_sceneRunning;
 	}
 
-	void startScene(std::vector<PDSceneEntry> const &entries);
+	void startScene(std::vector<PDSceneEntry> const& entries);
 	void stopScene();
 	void reshuffle();
 	void requestExit();
 
-	void reloadPack(std::string const &packPath);
+	void reloadPack(std::string const& packPath);
 
-	PDSettingsStore &settings()
+	PDSettingsStore& settings()
 	{
 		return m_settings;
 	}
 
 private:
-	static constexpr float MaxDeltaSeconds = 0.1f;
-
 	void runOverlay(HINSTANCE instance);
 	std::vector<PDRect> walkableRects() const;
 	void applyPendingScene();

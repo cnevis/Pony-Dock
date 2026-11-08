@@ -43,7 +43,5 @@ namespace PDTheme
 	inline ImVec4 const InputBgHover = ImVec4(0.14f, 0.14f, 0.14f, 1.0f);
 	inline ImVec4 const InputBgActive = ImVec4(0.17f, 0.17f, 0.17f, 1.0f);
 
-	// Applies the palette above to ImGui's global style so every stock widget
-	// (input boxes, checkboxes, sliders) matches instead of ImGui's default blue.
 	void apply();
 } // namespace PDTheme

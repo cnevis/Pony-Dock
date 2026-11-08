@@ -6,10 +6,11 @@
 
 #include <shlobj.h>
 
+#include <cassert>
 #include <filesystem>
 #include <fstream>
 
-static std::string packFolderName(std::string const &packPath)
+static std::string packFolderName(std::string const& packPath)
 {
 	return pathString(nativePath(packPath).lexically_normal().filename());
 }
@@ -32,7 +33,7 @@ std::string ponyPackOverrideRoot()
 	return pathString(path);
 }
 
-std::string ponyPackOverridePath(std::string const &packPath)
+std::string ponyPackOverridePath(std::string const& packPath)
 {
 	std::string const folder = packFolderName(packPath);
 
@@ -44,7 +45,7 @@ std::string ponyPackOverridePath(std::string const &packPath)
 	return pathString(nativePath(ponyPackOverrideRoot()) / nativePath(folder + ".json"));
 }
 
-bool ponyPackOverrideExists(std::string const &packPath)
+bool ponyPackOverrideExists(std::string const& packPath)
 {
 	std::string const path = ponyPackOverridePath(packPath);
 
@@ -53,12 +54,12 @@ bool ponyPackOverrideExists(std::string const &packPath)
 		return false;
 	}
 
-	std::error_code error;
+	std::error_code ec;
 
-	return std::filesystem::is_regular_file(nativePath(path), error);
+	return std::filesystem::is_regular_file(nativePath(path), ec);
 }
 
-std::string ponyPackDocumentPath(std::string const &packPath)
+std::string ponyPackDocumentPath(std::string const& packPath)
 {
 	if (ponyPackOverrideExists(packPath))
 	{
@@ -68,24 +69,26 @@ std::string ponyPackDocumentPath(std::string const &packPath)
 	return pathString(nativePath(packPath) / "pony.json");
 }
 
-bool writePonyPackOverride(std::string const &packPath, std::string const &text, std::string &outError)
+bool writePonyPackOverride(std::string const& packPath, std::string const& text, std::string* error)
 {
+	assert(error != nullptr);
+
 	std::string const path = ponyPackOverridePath(packPath);
 
 	if (path.empty())
 	{
-		outError = "cannot derive an override name for " + packPath;
+		*error = "cannot derive an override name for " + packPath;
 
 		return false;
 	}
 
 	std::filesystem::path const target = nativePath(path);
-	std::error_code error;
-	std::filesystem::create_directories(target.parent_path(), error);
+	std::error_code ec;
+	std::filesystem::create_directories(target.parent_path(), ec);
 
-	if (error)
+	if (ec)
 	{
-		outError = "cannot create " + pathString(target.parent_path());
+		*error = "cannot create " + pathString(target.parent_path());
 
 		return false;
 	}
@@ -98,7 +101,7 @@ bool writePonyPackOverride(std::string const &packPath, std::string const &text,
 
 		if (not stream)
 		{
-			outError = "cannot write " + pathString(temporary);
+			*error = "cannot write " + pathString(temporary);
 
 			return false;
 		}
@@ -108,17 +111,17 @@ bool writePonyPackOverride(std::string const &packPath, std::string const &text,
 
 		if (not stream)
 		{
-			outError = "cannot write " + pathString(temporary);
+			*error = "cannot write " + pathString(temporary);
 
 			return false;
 		}
 	}
 
-	std::filesystem::rename(temporary, target, error);
+	std::filesystem::rename(temporary, target, ec);
 
-	if (error)
+	if (ec)
 	{
-		outError = "cannot replace " + pathString(target);
+		*error = "cannot replace " + pathString(target);
 
 		return false;
 	}
@@ -126,23 +129,25 @@ bool writePonyPackOverride(std::string const &packPath, std::string const &text,
 	return true;
 }
 
-bool removePonyPackOverride(std::string const &packPath, std::string &outError)
+bool removePonyPackOverride(std::string const& packPath, std::string* error)
 {
+	assert(error != nullptr);
+
 	std::string const path = ponyPackOverridePath(packPath);
 
 	if (path.empty())
 	{
-		outError = "cannot derive an override name for " + packPath;
+		*error = "cannot derive an override name for " + packPath;
 
 		return false;
 	}
 
-	std::error_code error;
-	std::filesystem::remove(nativePath(path), error);
+	std::error_code ec;
+	std::filesystem::remove(nativePath(path), ec);
 
-	if (error)
+	if (ec)
 	{
-		outError = "cannot remove " + path;
+		*error = "cannot remove " + path;
 
 		return false;
 	}

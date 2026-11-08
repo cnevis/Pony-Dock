@@ -4,7 +4,7 @@
 
 #include <algorithm>
 
-void PDDiagnostics::write(std::string const &message)
+void PDDiagnostics::write(std::string const& message)
 {
 	OutputDebugStringA(message.c_str());
 	OutputDebugStringA("\n");
@@ -15,16 +15,16 @@ void PDDiagnostics::write(std::string const &message)
 
 	if (m_lines.size() > MaxLines)
 	{
-		m_lines.erase(m_lines.begin(), m_lines.begin() + static_cast<std::ptrdiff_t>(m_lines.size() - MaxLines));
+		m_lines.erase(m_lines.begin(), m_lines.begin() + (std::ptrdiff_t)(m_lines.size() - MaxLines));
 	}
 }
 
-void PDDiagnostics::writeOnce(std::string const &key, std::string const &message)
+void PDDiagnostics::writeOnce(std::string const& key, std::string const& message)
 {
 	{
 		std::lock_guard<std::mutex> const lock(m_mutex);
 
-		int &count = m_counts[key];
+		int& count = m_counts[key];
 		count += 1;
 		m_messages[key] = message;
 
@@ -50,16 +50,16 @@ std::vector<std::pair<std::string, int>> PDDiagnostics::repeats() const
 
 	std::vector<std::pair<std::string, int>> result;
 
-	for (auto const &entry : m_counts)
+	for (std::pair<std::string const, int> const& entry : m_counts)
 	{
 		if (entry.second > 1)
 		{
-			auto const message = m_messages.find(entry.first);
+			std::unordered_map<std::string, std::string>::const_iterator const message = m_messages.find(entry.first);
 			result.emplace_back(message != m_messages.end() ? message->second : entry.first, entry.second);
 		}
 	}
 
-	std::sort(result.begin(), result.end(), [](auto const &a, auto const &b)
+	std::sort(result.begin(), result.end(), [](std::pair<std::string, int> const& a, std::pair<std::string, int> const& b)
 	{
 		return a.second > b.second;
 	});
