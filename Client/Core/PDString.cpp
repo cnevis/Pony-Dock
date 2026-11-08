@@ -2,15 +2,15 @@
 
 #include <windows.h>
 
-#include <algorithm>
-#include <cctype>
-
 std::string toLower(std::string text)
 {
-	std::transform(text.begin(), text.end(), text.begin(), [](unsigned char character)
+	for (char& character : text)
 	{
-		return static_cast<char>(std::tolower(character));
-	});
+		if (character >= 'A' and character <= 'Z')
+		{
+			character = (char)(character + ('a' - 'A'));
+		}
+	}
 
 	return text;
 }

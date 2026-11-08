@@ -1,17 +1,36 @@
 #include <Engine/PDAnimationLoader.h>
 
+#include <Core/PDPaths.h>
+
 #include <nlohmann/json.hpp>
 
+#include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 
 static constexpr float MinFrameSeconds = 0.001f;
+
+static bool finiteNumber(nlohmann::json const& value)
+{
+	if (not value.is_number())
+	{
+		return false;
+	}
+
+	double const number = value.get<double>();
+
+	return std::isfinite(number)
+		and number >= -std::numeric_limits<float>::max()
+		and number <= std::numeric_limits<float>::max();
+}
 
 bool loadAnimationClip(std::string const &animPath, PDAnimationClip &outClip, std::string &outError)
 {
 	outClip = PDAnimationClip();
+	outError.clear();
 
-	std::ifstream stream(animPath, std::ios::binary);
+	std::ifstream stream(nativePath(animPath), std::ios::binary);
 
 	if (not stream)
 	{
@@ -26,7 +45,7 @@ bool loadAnimationClip(std::string const &animPath, PDAnimationClip &outClip, st
 	{
 		stream >> document;
 	}
-	catch (nlohmann::json::parse_error const &error)
+	catch (nlohmann::json::exception const& error)
 	{
 		outError = std::string("parse error in ") + animPath + ": " + error.what();
 
@@ -40,10 +59,16 @@ bool loadAnimationClip(std::string const &animPath, PDAnimationClip &outClip, st
 		return false;
 	}
 
-	auto const atlasSize = document.find("atlasSize");
+	nlohmann::json::const_iterator const atlasSize = document.find("atlasSize");
 
-	if (atlasSize == document.end() or not atlasSize->is_array() or atlasSize->size() != 2
-		or not (*atlasSize)[0].is_number() or not (*atlasSize)[1].is_number())
+	if (atlasSize == document.end() or not atlasSize->is_array() or atlasSize->size() != 2)
+	{
+		outError = animPath + " has a missing or invalid atlasSize";
+
+		return false;
+	}
+
+	if (not finiteNumber((*atlasSize)[0]) or not finiteNumber((*atlasSize)[1]))
 	{
 		outError = animPath + " has a missing or invalid atlasSize";
 
@@ -67,8 +92,8 @@ bool loadAnimationClip(std::string const &animPath, PDAnimationClip &outClip, st
 		return false;
 	}
 
-	std::filesystem::path const directory = std::filesystem::path(animPath).parent_path();
-	outClip.atlasPath = (directory / document["atlas"].get<std::string>()).lexically_normal().string();
+	std::filesystem::path const directory = nativePath(animPath).parent_path();
+	outClip.atlasPath = pathString((directory / nativePath(document["atlas"].get<std::string>())).lexically_normal());
 
 	if (not document.contains("frames") or not document["frames"].is_array() or document["frames"].empty())
 	{
@@ -86,7 +111,7 @@ bool loadAnimationClip(std::string const &animPath, PDAnimationClip &outClip, st
 			return false;
 		}
 
-		nlohmann::json const &rect = frameValue["rect"];
+		nlohmann::json const& rect = frameValue["rect"];
 
 		if (not rect.is_array() or rect.size() != 4)
 		{
@@ -95,13 +120,29 @@ bool loadAnimationClip(std::string const &animPath, PDAnimationClip &outClip, st
 			return false;
 		}
 
+		for (nlohmann::json const& value : rect)
+		{
+			if (not finiteNumber(value))
+			{
+				outError = animPath + " has a frame with an invalid rect number";
+
+				return false;
+			}
+		}
+
 		float const x = rect[0].get<float>();
 		float const y = rect[1].get<float>();
 		float const width = rect[2].get<float>();
 		float const height = rect[3].get<float>();
 
-		if (width <= 0.0f or height <= 0.0f or x < 0.0f or y < 0.0f
-			or x + width > atlasWidth or y + height > atlasHeight)
+		if (width <= 0.0f or height <= 0.0f)
+		{
+			outError = animPath + " has a frame with a non-positive size";
+
+			return false;
+		}
+
+		if (x < 0.0f or y < 0.0f or x + width > atlasWidth or y + height > atlasHeight)
 		{
 			outError = animPath + " has a frame rect outside the atlas";
 
@@ -112,6 +153,13 @@ bool loadAnimationClip(std::string const &animPath, PDAnimationClip &outClip, st
 
 		if (frameValue.contains("durationMs") and frameValue["durationMs"].is_number())
 		{
+			if (not finiteNumber(frameValue["durationMs"]))
+			{
+				outError = animPath + " has a frame with an invalid duration";
+
+				return false;
+			}
+
 			durationSeconds = frameValue["durationMs"].get<float>() / 1000.0f;
 		}
 
@@ -132,10 +180,26 @@ bool loadAnimationClip(std::string const &animPath, PDAnimationClip &outClip, st
 	float pivotX = 0.0f;
 	float pivotY = 0.0f;
 
-	if (document.contains("pivot") and document["pivot"].is_array() and document["pivot"].size() == 2)
+	if (document.contains("pivot"))
 	{
-		pivotX = document["pivot"][0].get<float>();
-		pivotY = document["pivot"][1].get<float>();
+		nlohmann::json const& pivot = document["pivot"];
+
+		if (not pivot.is_array() or pivot.size() != 2)
+		{
+			outError = animPath + " has an invalid pivot";
+
+			return false;
+		}
+
+		if (not finiteNumber(pivot[0]) or not finiteNumber(pivot[1]))
+		{
+			outError = animPath + " has an invalid pivot number";
+
+			return false;
+		}
+
+		pivotX = pivot[0].get<float>();
+		pivotY = pivot[1].get<float>();
 	}
 
 	if (pivotX == 0.0f and pivotY == 0.0f)

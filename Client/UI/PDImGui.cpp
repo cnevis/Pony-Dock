@@ -1,5 +1,6 @@
 #include <UI/PDImGui.h>
 
+#include <Core/PDPaths.h>
 #include <UI/PDTheme.h>
 
 #include <imgui.h>
@@ -27,6 +28,7 @@ bool PDImGui::initialize(
 	int minHeight)
 {
 	s_instance = this;
+	m_instance = instance;
 	m_minClientWidth = minWidth;
 	m_minClientHeight = minHeight;
 
@@ -43,7 +45,13 @@ bool PDImGui::initialize(
 		nullptr,
 		"PonyDockClassName",
 		icon};
-	RegisterClassEx(&windowClass);
+
+	if (RegisterClassEx(&windowClass) == 0)
+	{
+		s_instance = nullptr;
+
+		return false;
+	}
 
 	RECT windowRect = {0, 0, width, height};
 	AdjustWindowRect(&windowRect, WS_OVERLAPPEDWINDOW, FALSE);
@@ -61,10 +69,21 @@ bool PDImGui::initialize(
 		instance,
 		nullptr);
 
+	if (m_window == nullptr)
+	{
+		UnregisterClass(windowClass.lpszClassName, instance);
+		s_instance = nullptr;
+
+		return false;
+	}
+
 	if (not createDevice())
 	{
 		destroyDevice();
+		DestroyWindow(m_window);
+		m_window = nullptr;
 		UnregisterClass(windowClass.lpszClassName, instance);
+		s_instance = nullptr;
 
 		return false;
 	}
@@ -76,17 +95,45 @@ bool PDImGui::initialize(
 	PDTheme::apply();
 	ImGui::GetStyle().WindowRounding = 0.0f;
 
-	char windowsDirectory[MAX_PATH];
-	GetWindowsDirectoryA(windowsDirectory, MAX_PATH);
-	std::string const fontPath = std::string(windowsDirectory) + "\\Fonts\\segoeui.ttf";
+	wchar_t windowsDirectory[MAX_PATH] = {};
+	UINT const length = GetWindowsDirectoryW(windowsDirectory, MAX_PATH);
 
-	if (ImFont *font = ImGui::GetIO().Fonts->AddFontFromFileTTF(fontPath.c_str(), 16.0f))
+	if (length > 0 and length < MAX_PATH)
 	{
-		ImGui::GetIO().FontDefault = font;
+		std::string const fontPath = pathString(std::filesystem::path(windowsDirectory) / "Fonts" / "segoeui.ttf");
+
+		if (ImFont* font = ImGui::GetIO().Fonts->AddFontFromFileTTF(fontPath.c_str(), 16.0f))
+		{
+			ImGui::GetIO().FontDefault = font;
+		}
 	}
 
-	ImGui_ImplWin32_Init(m_window);
-	ImGui_ImplDX11_Init(m_device, m_deviceContext);
+	if (not ImGui_ImplWin32_Init(m_window))
+	{
+		ImGui::DestroyContext();
+		destroyDevice();
+		DestroyWindow(m_window);
+		m_window = nullptr;
+		UnregisterClass(windowClass.lpszClassName, instance);
+		s_instance = nullptr;
+
+		return false;
+	}
+
+	if (not ImGui_ImplDX11_Init(m_device, m_deviceContext))
+	{
+		ImGui_ImplWin32_Shutdown();
+		ImGui::DestroyContext();
+		destroyDevice();
+		DestroyWindow(m_window);
+		m_window = nullptr;
+		UnregisterClass(windowClass.lpszClassName, instance);
+		s_instance = nullptr;
+
+		return false;
+	}
+
+	m_ready = true;
 
 	ShowWindow(m_window, SW_SHOWDEFAULT);
 	UpdateWindow(m_window);
@@ -96,17 +143,22 @@ bool PDImGui::initialize(
 
 void PDImGui::shutdown()
 {
+	m_ready = false;
 	ImGui_ImplDX11_Shutdown();
 	ImGui_ImplWin32_Shutdown();
 	ImGui::DestroyContext();
 
 	destroyDevice();
 
-	HINSTANCE const instance = reinterpret_cast<HINSTANCE>(GetWindowLongPtr(m_window, GWLP_HINSTANCE));
-	DestroyWindow(m_window);
-	UnregisterClass("PonyDockClassName", instance);
+	if (m_window != nullptr)
+	{
+		DestroyWindow(m_window);
+	}
+
+	UnregisterClass("PonyDockClassName", m_instance);
 
 	m_window = nullptr;
+	m_instance = nullptr;
 	s_instance = nullptr;
 }
 
@@ -130,7 +182,7 @@ bool PDImGui::pumpMessages()
 
 void PDImGui::close()
 {
-	DestroyWindow(m_window);
+	PostMessage(m_window, WM_CLOSE, 0, 0);
 }
 
 void PDImGui::beginFrame()
@@ -143,6 +195,11 @@ void PDImGui::beginFrame()
 void PDImGui::endFrame()
 {
 	ImGui::Render();
+
+	if (m_renderTargetView == nullptr or m_window == nullptr)
+	{
+		return;
+	}
 
 	constexpr float clearColor[4] = {0.1f, 0.1f, 0.1f, 1.0f};
 	m_deviceContext->OMSetRenderTargets(1, &m_renderTargetView, nullptr);
@@ -191,9 +248,7 @@ bool PDImGui::createDevice()
 		return false;
 	}
 
-	createRenderTarget();
-
-	return true;
+	return createRenderTarget();
 }
 
 void PDImGui::destroyDevice()
@@ -219,12 +274,19 @@ void PDImGui::destroyDevice()
 	}
 }
 
-void PDImGui::createRenderTarget()
+bool PDImGui::createRenderTarget()
 {
-	ID3D11Texture2D *backBuffer = nullptr;
-	m_swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
-	m_device->CreateRenderTargetView(backBuffer, nullptr, &m_renderTargetView);
+	ID3D11Texture2D* backBuffer = nullptr;
+
+	if (FAILED(m_swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer))))
+	{
+		return false;
+	}
+
+	HRESULT const result = m_device->CreateRenderTargetView(backBuffer, nullptr, &m_renderTargetView);
 	backBuffer->Release();
+
+	return SUCCEEDED(result);
 }
 
 void PDImGui::destroyRenderTarget()
@@ -238,14 +300,16 @@ void PDImGui::destroyRenderTarget()
 
 void PDImGui::renderFrame()
 {
-	if (not m_frameCallback)
+	if (not m_ready or m_rendering or m_renderTargetView == nullptr or not m_frameCallback)
 	{
 		return;
 	}
 
+	m_rendering = true;
 	beginFrame();
 	m_frameCallback();
 	endFrame();
+	m_rendering = false;
 }
 
 LRESULT CALLBACK PDImGui::staticWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
@@ -286,6 +350,7 @@ LRESULT PDImGui::handleMessage(HWND window, UINT message, WPARAM wParam, LPARAM 
 		{
 			if (m_device != nullptr and wParam != SIZE_MINIMIZED)
 			{
+				m_deviceContext->OMSetRenderTargets(0, nullptr, nullptr);
 				destroyRenderTarget();
 				m_swapChain->ResizeBuffers(0, LOWORD(lParam), HIWORD(lParam), DXGI_FORMAT_UNKNOWN, 0);
 				createRenderTarget();
@@ -297,6 +362,7 @@ LRESULT PDImGui::handleMessage(HWND window, UINT message, WPARAM wParam, LPARAM 
 
 		case WM_DESTROY:
 		{
+			m_window = nullptr;
 			PostQuitMessage(0);
 
 			return 0;

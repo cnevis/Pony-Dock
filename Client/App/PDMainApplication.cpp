@@ -1,11 +1,9 @@
 #include <App/PDMainApplication.h>
 
 #include <Assets/resource.h>
-#include <Core/PDPaths.h>
 
 #include <algorithm>
 #include <chrono>
-#include <filesystem>
 #include <string>
 #include <utility>
 
@@ -67,13 +65,13 @@ void PDMainApplication::runOverlay(HINSTANCE instance)
 	if (not m_spriteRenderer.initialize(m_overlay.device()))
 	{
 		m_diagnostics.write("Sprite renderer failed to initialize");
+		m_overlay.shutdown();
 
 		return;
 	}
 
 	m_monitors = enumerateMonitors();
-	m_scene.initialize(m_overlay.device(), m_diagnostics, m_settings, scriptsRoot());
-	m_scene.loadScript(coreScriptPath());
+	m_scene.initialize(m_overlay.device(), &m_diagnostics, &m_settings);
 
 	m_diagnostics.write("Found " + std::to_string(m_monitors.size()) + " displays");
 
@@ -85,13 +83,11 @@ void PDMainApplication::runOverlay(HINSTANCE instance)
 	{
 		m_overlay.pumpMessages();
 
-		if (m_pendingReload.exchange(false))
+		if (m_pendingShuffle.exchange(false))
 		{
-			m_scene.reloadScripts();
-			m_scene.loadScript(coreScriptPath());
+			m_scene.reshuffle();
 		}
 
-		applyPendingScripts();
 		applyPendingPacks();
 		applyPendingScene();
 
@@ -105,12 +101,6 @@ void PDMainApplication::runOverlay(HINSTANCE instance)
 		m_overlay.setInteractive(m_scene.wantsMouse());
 
 		m_scene.tick(deltaSeconds, m_overlay.width(), m_overlay.height(), walkableRects());
-		applyPendingButtons();
-
-		{
-			std::lock_guard<std::mutex> const lock(m_scriptsMutex);
-			m_loadedScripts = m_scene.loadedScripts();
-		}
 
 		m_overlay.beginFrame();
 		m_spriteRenderer.begin(m_overlay.context(), m_overlay.width(), m_overlay.height());
@@ -189,35 +179,6 @@ void PDMainApplication::applyPendingScene()
 	}
 }
 
-void PDMainApplication::applyPendingScripts()
-{
-	std::vector<ScriptCommand> commands;
-
-	{
-		std::lock_guard<std::mutex> const lock(m_scriptsMutex);
-
-		if (m_pendingScripts.empty())
-		{
-			return;
-		}
-
-		commands = std::move(m_pendingScripts);
-		m_pendingScripts.clear();
-	}
-
-	for (ScriptCommand const &command : commands)
-	{
-		if (command.load)
-		{
-			m_scene.loadScript(command.path);
-		}
-		else
-		{
-			m_scene.unloadScript(command.path);
-		}
-	}
-}
-
 void PDMainApplication::startScene(std::vector<PDSceneEntry> const &entries)
 {
 	{
@@ -240,9 +201,9 @@ void PDMainApplication::stopScene()
 	m_sceneRunning = false;
 }
 
-void PDMainApplication::reloadScripts()
+void PDMainApplication::reshuffle()
 {
-	m_pendingReload = true;
+	m_pendingShuffle = true;
 }
 
 void PDMainApplication::applyPendingPacks()
@@ -277,72 +238,6 @@ void PDMainApplication::reloadPack(std::string const &packPath)
 	}
 
 	m_pendingPacks.push_back(packPath);
-}
-
-void PDMainApplication::applyPendingButtons()
-{
-	std::vector<ButtonPress> presses;
-
-	{
-		std::lock_guard<std::mutex> const lock(m_buttonsMutex);
-
-		if (m_pendingButtons.empty())
-		{
-			return;
-		}
-
-		presses = std::move(m_pendingButtons);
-		m_pendingButtons.clear();
-	}
-
-	for (ButtonPress const &press : presses)
-	{
-		m_scene.pressSettingsButton(press.moduleKey, press.settingId);
-	}
-}
-
-void PDMainApplication::pressSettingButton(std::string const &moduleKey, std::string const &settingId)
-{
-	std::lock_guard<std::mutex> const lock(m_buttonsMutex);
-
-	if (m_pendingButtons.size() >= MaxPendingButtons)
-	{
-		return;
-	}
-
-	ButtonPress press;
-	press.moduleKey = moduleKey;
-	press.settingId = settingId;
-	m_pendingButtons.push_back(std::move(press));
-}
-
-void PDMainApplication::setScriptLoaded(std::string const &scriptPath, bool loaded)
-{
-	ScriptCommand command;
-	command.path = scriptPath;
-	command.load = loaded;
-
-	std::lock_guard<std::mutex> const lock(m_scriptsMutex);
-	m_pendingScripts.push_back(std::move(command));
-}
-
-std::vector<std::string> PDMainApplication::loadedScripts() const
-{
-	std::lock_guard<std::mutex> const lock(m_scriptsMutex);
-
-	return m_loadedScripts;
-}
-
-std::string PDMainApplication::coreScriptPath()
-{
-	return std::filesystem::path(scriptsRoot() + "/core.lua").lexically_normal().string();
-}
-
-std::vector<std::string> PDMainApplication::requiredScripts()
-{
-	std::string const library = std::filesystem::path(scriptsRoot() + "/lib/pd.lua").lexically_normal().string();
-
-	return {coreScriptPath(), library};
 }
 
 void PDMainApplication::requestExit()

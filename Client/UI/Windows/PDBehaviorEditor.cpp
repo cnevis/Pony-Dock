@@ -1,6 +1,7 @@
 #include <UI/Windows/PDBehaviorEditor.h>
 
 #include <App/PDMainApplication.h>
+#include <Core/PDPaths.h>
 #include <Core/PDString.h>
 #include <Engine/PDAnimationLoader.h>
 #include <Engine/PDDiagnostics.h>
@@ -16,6 +17,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 
 static nlohmann::json const &behaviorField(nlohmann::json const &behavior, char const *key)
 {
@@ -50,7 +52,14 @@ static int fieldGroup(nlohmann::json const &behavior)
 {
 	nlohmann::json const &value = behaviorField(behavior, "group");
 
-	return value.is_number_integer() ? value.get<int>() : 0;
+	if (not value.is_number_integer())
+	{
+		return 0;
+	}
+
+	double const group = value.get<double>();
+
+	return group >= std::numeric_limits<int>::min() and group <= std::numeric_limits<int>::max() ? (int)group : 0;
 }
 
 static double fieldDuration(nlohmann::json const &behavior, char const *key)
@@ -67,7 +76,7 @@ static double fieldDuration(nlohmann::json const &behavior, char const *key)
 
 static bool readDocument(std::string const &path, nlohmann::json &outDocument)
 {
-	std::ifstream stream(path, std::ios::binary);
+	std::ifstream stream(nativePath(path), std::ios::binary);
 
 	if (not stream)
 	{
@@ -79,6 +88,24 @@ static bool readDocument(std::string const &path, nlohmann::json &outDocument)
 	if (document.is_discarded() or not document.is_object())
 	{
 		return false;
+	}
+
+	nlohmann::json::const_iterator const pool = document.find("behaviors");
+
+	if (pool != document.end())
+	{
+		if (not pool->is_array())
+		{
+			return false;
+		}
+
+		for (nlohmann::json const& entry : *pool)
+		{
+			if (not entry.is_object())
+			{
+				return false;
+			}
+		}
 	}
 
 	outDocument = std::move(document);
@@ -116,7 +143,7 @@ bool PDBehaviorEditor::open(std::string const &packPath, std::string const &disp
 
 	m_document = std::move(document);
 	m_base = nlohmann::json();
-	readDocument((std::filesystem::path(packPath) / "pony.json").string(), m_base);
+	readDocument(pathString(nativePath(packPath) / "pony.json"), m_base);
 
 	m_previews.clear();
 	m_packPath = packPath;
@@ -124,6 +151,9 @@ bool PDBehaviorEditor::open(std::string const &packPath, std::string const &disp
 	m_hasOverride = ponyPackOverrideExists(packPath);
 	m_expanded = -1;
 	m_resetOpen = false;
+	m_deleteOpen = false;
+	m_deleteIndex = -1;
+	m_deleteReferences.clear();
 	m_search[0] = '\0';
 	m_status.clear();
 	m_mode = 0;
@@ -234,8 +264,22 @@ void PDBehaviorEditor::rebuildIndex()
 			}
 
 			PDBehaviorMode mode;
-			mode.id = entry.value("id", 0);
-			mode.name = entry.value("name", std::string());
+			nlohmann::json const& id = behaviorField(entry, "id");
+
+			if (not id.is_number_integer())
+			{
+				continue;
+			}
+
+			double const value = id.get<double>();
+
+			if (value < std::numeric_limits<int>::min() or value > std::numeric_limits<int>::max())
+			{
+				continue;
+			}
+
+			mode.id = (int)value;
+			mode.name = fieldString(entry, "name");
 
 			if (mode.id != 0 and modeName(mode.id) == nullptr)
 			{
@@ -298,6 +342,8 @@ void PDBehaviorEditor::commit()
 {
 	std::string error;
 
+	rebuildIndex();
+
 	if (not writePonyPackOverride(m_packPath, m_document.dump(2), error))
 	{
 		m_status = error;
@@ -308,7 +354,6 @@ void PDBehaviorEditor::commit()
 
 	m_hasOverride = true;
 	m_status.clear();
-	rebuildIndex();
 	m_app.reloadPack(m_packPath);
 }
 
@@ -441,7 +486,7 @@ PDBehaviorPreview const *PDBehaviorEditor::preview(std::string const &animation)
 		return nullptr;
 	}
 
-	std::string const path = (std::filesystem::path(m_packPath) / relative).lexically_normal().string();
+	std::string const path = pathString((nativePath(m_packPath) / nativePath(relative)).lexically_normal());
 
 	PDAnimationClip clip;
 	std::string error;
@@ -864,17 +909,18 @@ void PDBehaviorEditor::drawDurationField(std::size_t index)
 	ImGui::PushID("durationMs");
 	drawFieldLabel("Duration (ms)");
 
-	int values[2] = {
-		static_cast<int>(fieldDuration(behaviors()[index], "min")),
-		static_cast<int>(fieldDuration(behaviors()[index], "max"))};
+	int values[2] =
+	{
+		(int)std::clamp(fieldDuration(behaviors()[index], "min"), 0.0, (double)std::numeric_limits<int>::max()),
+		(int)std::clamp(fieldDuration(behaviors()[index], "max"), 0.0, (double)std::numeric_limits<int>::max())
+	};
 
 	if (ImGui::InputInt2("##v", values))
 	{
 		values[0] = values[0] < 0 ? 0 : values[0];
 		values[1] = values[1] < values[0] ? values[0] : values[1];
 
-		behavior(index)["durationMs"]["min"] = values[0];
-		behavior(index)["durationMs"]["max"] = values[1];
+		behavior(index)["durationMs"] = nlohmann::json{{"min", values[0]}, {"max", values[1]}};
 	}
 
 	if (ImGui::IsItemDeactivatedAfterEdit())
@@ -1192,7 +1238,11 @@ void PDBehaviorEditor::drawDetail()
 		ImGui::PopStyleColor();
 		ImGui::Dummy(ImVec2(0.0f, 8.0f));
 
+		ImGui::PushID(m_packPath.c_str());
+		ImGui::PushID((int)index);
 		drawFields(index);
+		ImGui::PopID();
+		ImGui::PopID();
 
 		ImGui::Dummy(ImVec2(0.0f, 12.0f));
 		ImGui::Separator();

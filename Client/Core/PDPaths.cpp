@@ -1,4 +1,5 @@
 #include <Core/PDPaths.h>
+#include <Core/PDString.h>
 
 #include <windows.h>
 
@@ -14,10 +15,17 @@ static std::filesystem::path executableDirectory()
 
 std::string packsRoot()
 {
-	return (executableDirectory() / "Packs").lexically_normal().string();
+	return pathString((executableDirectory() / "Packs").lexically_normal());
 }
 
-std::string scriptsRoot()
+std::filesystem::path nativePath(std::string const& path)
 {
-	return (executableDirectory() / "Scripts").lexically_normal().string();
+	return std::filesystem::path(toWide(path));
+}
+
+std::string pathString(std::filesystem::path const& path)
+{
+	std::u8string const text = path.generic_u8string();
+
+	return std::string(reinterpret_cast<char const*>(text.data()), text.size());
 }

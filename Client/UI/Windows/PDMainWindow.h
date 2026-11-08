@@ -5,7 +5,6 @@
 #include <Library/PDMonitor.h>
 #include <Library/PDPonyCatalog.h>
 #include <Library/PDSceneEntry.h>
-#include <Library/PDScriptCatalog.h>
 #include <Library/PDSettings.h>
 #include <UI/Windows/PDBehaviorEditor.h>
 
@@ -49,21 +48,16 @@ private:
 	static constexpr float ThumbHeight = 108.0f;
 	static constexpr float CardPad = 8.0f;
 	static constexpr float CardSpacing = 14.0f;
-	static constexpr float ScriptRowHeight = 34.0f;
-	static constexpr float ColumnGap = 18.0f;
 	static constexpr float RowPad = 10.0f;
-	static constexpr float ToggleWidth = 78.0f;
-	static constexpr float ToggleHeight = 22.0f;
 	static constexpr float ShadowSpread = 6.0f;
 	static constexpr float SettingRowHeight = 48.0f;
-	static constexpr float SettingControlWidth = 190.0f;
 	static constexpr float TargetPickerWidth = 170.0f;
 
 	enum class View
 	{
 		Browser,
 		Scene,
-		Modules,
+		Features,
 		Settings,
 		Log,
 		Behaviors
@@ -103,18 +97,10 @@ private:
 	void exportConfig();
 	void importConfig();
 
-	void drawModulesView();
-	void drawScriptColumn(const char *label, bool loadedColumn, float width);
-	void drawColumnHeader(const char *label, int count);
-	void drawScriptCard(PDScriptEntry const &entry, bool loaded);
-	void openModule(PDScriptEntry const &entry);
-
-	void drawModuleSettings();
-	void drawSettingRow(PDSettingDeclaration const &declaration, bool loaded);
+	void drawFeaturesView();
 	void drawTargetButton();
 	void drawTargetModal();
 	void drawVariantModal();
-	void openInEditor();
 
 	static int gridColumns(float available, float &outIndent);
 
@@ -135,15 +121,11 @@ private:
 
 	std::vector<PDSceneEntry> m_scene;
 
-	PDScriptCatalog m_scripts;
-	std::vector<std::string> m_loadedScripts;
-	std::vector<std::string> m_requiredScripts;
-	std::string m_settingsModule;
-	std::string m_settingsModulePath;
 	std::string m_settingsTarget;
 	std::string m_settingsTargetLabel;
 	char m_targetFilter[64] = "";
 	bool m_targetPickerOpen = false;
+	bool m_featuresDirty = false;
 
 	std::vector<PDSettingTarget> m_targets;
 

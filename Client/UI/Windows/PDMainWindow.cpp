@@ -10,15 +10,12 @@
 
 #include <windows.h>
 
-#include <shellapi.h>
-
 #include <imgui.h>
 #include <imgui_stdlib.h>
 
 #include <algorithm>
 #include <cstddef>
 #include <cstdio>
-#include <filesystem>
 #include <utility>
 
 void PDMainWindow::addImageFitted(ImDrawList *drawList, PDTexture const *texture, ImVec2 areaMin, ImVec2 areaMax, float margin)
@@ -77,8 +74,6 @@ PDMainWindow::PDMainWindow(PDMainApplication &app, PDImGui &host, PDDiagnostics 
 	  m_behaviorEditor(app, host, diagnostics)
 {
 	m_catalog.load(packsRoot());
-	m_scripts.load(scriptsRoot());
-	m_requiredScripts = PDMainApplication::requiredScripts();
 
 	for (PDPonyGroup const &group : m_catalog.groups())
 	{
@@ -142,6 +137,16 @@ void PDMainWindow::draw()
 	{
 		m_behaviorEditor.drawDetail();
 	}
+
+	if (m_featuresDirty and (m_activeView != View::Features or not ImGui::IsAnyItemActive()))
+	{
+		m_featuresDirty = false;
+
+		if (not m_app.settings().save())
+		{
+			m_diagnostics.write("Could not save feature settings");
+		}
+	}
 }
 
 void PDMainWindow::drawSidebar(float width, float height)
@@ -155,7 +160,7 @@ void PDMainWindow::drawSidebar(float width, float height)
 	ImGui::Dummy(ImVec2(0.0f, 2.0f));
 	navItem("Scene", View::Scene);
 	ImGui::Dummy(ImVec2(0.0f, 2.0f));
-	navItem("Modules", View::Modules);
+	navItem("Features", View::Features);
 	ImGui::Dummy(ImVec2(0.0f, 2.0f));
 	navItem("Settings", View::Settings);
 	ImGui::Dummy(ImVec2(0.0f, 2.0f));
@@ -308,9 +313,9 @@ void PDMainWindow::drawContent()
 			break;
 		}
 
-		case View::Modules:
+		case View::Features:
 		{
-			drawModulesView();
+			drawFeaturesView();
 
 			break;
 		}
@@ -537,6 +542,8 @@ PDTexture *PDMainWindow::thumbnail(std::string const &path)
 
 void PDMainWindow::drawSceneView()
 {
+	m_thumbnailBudget = 24;
+
 	beginToolbar();
 
 	if (ImGui::Button("Clear scene"))
@@ -698,207 +705,6 @@ void PDMainWindow::removeSceneEntry(std::size_t index)
 	m_scene.erase(m_scene.begin() + static_cast<std::ptrdiff_t>(index));
 }
 
-void PDMainWindow::drawModulesView()
-{
-	if (not m_settingsModule.empty())
-	{
-		drawModuleSettings();
-
-		return;
-	}
-
-	beginToolbar();
-
-	if (ImGui::Button("Rescan"))
-	{
-		m_scripts.load(scriptsRoot());
-	}
-
-	ImGui::SameLine();
-
-	if (ImGui::Button("Reload scripts"))
-	{
-		m_app.reloadScripts();
-	}
-
-	char summary[64];
-	std::snprintf(summary, sizeof(summary), "%zu scripts", m_scripts.entries().size());
-	toolbarSummary(summary);
-
-	endToolbar();
-
-	if (m_scripts.entries().empty())
-	{
-		ImGui::PushStyleColor(ImGuiCol_Text, PDTheme::TextDim);
-		ImGui::TextUnformatted("No scripts found.");
-		ImGui::PopStyleColor();
-
-		return;
-	}
-
-	m_loadedScripts = m_app.loadedScripts();
-
-	const float columnWidth = (ImGui::GetContentRegionAvail().x - ColumnGap) * 0.5f;
-
-	drawScriptColumn("LOADED", true, columnWidth);
-	ImGui::SameLine(0.0f, ColumnGap);
-	drawScriptColumn("UNLOADED", false, columnWidth);
-}
-
-void PDMainWindow::drawScriptColumn(const char *label, bool loadedColumn, float width)
-{
-	int count = 0;
-
-	for (PDScriptEntry const &entry : m_scripts.entries())
-	{
-		bool const loaded = std::find(m_loadedScripts.begin(), m_loadedScripts.end(), entry.fullPath) != m_loadedScripts.end();
-
-		if (loaded == loadedColumn)
-		{
-			count += 1;
-		}
-	}
-
-	ImGui::BeginChild(label, ImVec2(width, 0.0f));
-	drawColumnHeader(label, count);
-
-	for (std::size_t index = 0; index < m_scripts.entries().size(); index += 1)
-	{
-		PDScriptEntry const &entry = m_scripts.entries()[index];
-		bool const loaded = std::find(m_loadedScripts.begin(), m_loadedScripts.end(), entry.fullPath) != m_loadedScripts.end();
-
-		if (loaded != loadedColumn)
-		{
-			continue;
-		}
-
-		ImGui::PushID(static_cast<int>(index));
-		drawScriptCard(entry, loaded);
-		ImGui::PopID();
-	}
-
-	ImGui::EndChild();
-}
-
-void PDMainWindow::drawColumnHeader(const char *label, int count)
-{
-	ImGui::PushStyleColor(ImGuiCol_Text, PDTheme::TextDim);
-	ImGui::Text("%s  (%d)", label, count);
-	ImGui::PopStyleColor();
-	ImGui::Dummy(ImVec2(0.0f, 4.0f));
-}
-
-void PDMainWindow::drawScriptCard(PDScriptEntry const &entry, bool loaded)
-{
-	const bool required = std::find(m_requiredScripts.begin(), m_requiredScripts.end(), entry.fullPath) != m_requiredScripts.end();
-	const char *const requiredLabel = "Required";
-
-	const ImVec2 position = ImGui::GetCursorScreenPos();
-	const ImVec2 size(ImGui::GetContentRegionAvail().x, ScriptRowHeight);
-	const ImVec2 rectMax(position.x + size.x, position.y + size.y);
-
-	ImGui::SetNextItemAllowOverlap();
-	const bool clicked = ImGui::InvisibleButton("script", size);
-	const bool hovered = ImGui::IsItemHovered();
-
-	ImDrawList *drawList = ImGui::GetWindowDrawList();
-	drawList->AddRectFilled(position, rectMax, ImGui::GetColorU32(hovered ? PDTheme::CardBgHover : PDTheme::CardBg), 0.0f);
-	drawList->AddRect(position, rectMax, ImGui::GetColorU32(PDTheme::CardBorder), 0.0f, 0, 1.0f);
-
-	const float controlLeft = rectMax.x - RowPad - ToggleWidth;
-	const float textY = position.y + (ScriptRowHeight - ImGui::GetTextLineHeight()) * 0.5f;
-
-	drawList->AddText(
-		ImVec2(position.x + RowPad, textY),
-		ImGui::GetColorU32(PDTheme::White),
-		entry.relativePath.c_str());
-
-	char lines[32];
-	std::snprintf(lines, sizeof(lines), "%d lines", entry.lineCount);
-	const float linesWidth = ImGui::CalcTextSize(lines).x;
-
-	drawList->AddText(
-		ImVec2(controlLeft - RowPad - linesWidth, textY),
-		ImGui::GetColorU32(PDTheme::TextFaint),
-		lines);
-
-	if (required)
-	{
-		const ImVec2 labelSize = ImGui::CalcTextSize(requiredLabel);
-		const ImVec2 chipMin(controlLeft, position.y + (ScriptRowHeight - ToggleHeight) * 0.5f);
-		const ImVec2 chipMax(chipMin.x + ToggleWidth, chipMin.y + ToggleHeight);
-
-		drawList->AddRectFilled(chipMin, chipMax, ImGui::GetColorU32(PDTheme::AccentSoft), 0.0f);
-
-		drawList->AddText(
-			ImVec2(chipMin.x + (ToggleWidth - labelSize.x) * 0.5f, chipMin.y + (ToggleHeight - labelSize.y) * 0.5f),
-			ImGui::GetColorU32(PDTheme::AccentText),
-			requiredLabel);
-	}
-	else
-	{
-		ImGui::SetCursorScreenPos(ImVec2(controlLeft, position.y + (ScriptRowHeight - ToggleHeight) * 0.5f));
-
-		if (loaded)
-		{
-			if (ImGui::Button("Unload", ImVec2(ToggleWidth, ToggleHeight)))
-			{
-				m_app.setScriptLoaded(entry.fullPath, false);
-			}
-		}
-		else
-		{
-			ImGui::PushStyleColor(ImGuiCol_Button, PDTheme::Accent);
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, PDTheme::AccentHover);
-			ImGui::PushStyleColor(ImGuiCol_ButtonActive, PDTheme::AccentPress);
-
-			if (ImGui::Button("Load", ImVec2(ToggleWidth, ToggleHeight)))
-			{
-				m_app.setScriptLoaded(entry.fullPath, true);
-			}
-
-			ImGui::PopStyleColor(3);
-		}
-	}
-
-	if (clicked)
-	{
-		openModule(entry);
-	}
-
-	ImGui::SetCursorScreenPos(position);
-	ImGui::Dummy(ImVec2(size.x, ScriptRowHeight + 4.0f));
-}
-
-void PDMainWindow::openModule(PDScriptEntry const &entry)
-{
-	m_settingsModule = entry.relativePath;
-	m_settingsModulePath = entry.fullPath;
-	m_settingsTarget.clear();
-	m_settingsTargetLabel.clear();
-	m_targetFilter[0] = '\0';
-}
-
-void PDMainWindow::openInEditor()
-{
-	std::wstring const path = std::filesystem::path(m_settingsModulePath).wstring();
-	HINSTANCE result = ShellExecuteW(nullptr, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-
-	if (reinterpret_cast<INT_PTR>(result) > 32)
-	{
-		return;
-	}
-
-	result = ShellExecuteW(nullptr, L"openas", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-
-	if (reinterpret_cast<INT_PTR>(result) > 32)
-	{
-		return;
-	}
-
-	m_diagnostics.write("Cannot open " + m_settingsModulePath + " in an editor");
-}
-
 int PDMainWindow::gridColumns(float available, float &outIndent)
 {
 	const int columns = std::max(1, static_cast<int>((available + CardSpacing) / (CardWidth + CardSpacing)));
@@ -1026,7 +832,7 @@ void PDMainWindow::drawTargetModal()
 	ImGui::Dummy(ImVec2(0.0f, 10.0f));
 
 	std::string const filter = toLower(m_targetFilter);
-	std::vector<std::string> const overridden = m_app.settings().packsWithOverrides(m_settingsModule);
+	std::vector<std::string> const overridden = m_app.settings().packsWithOverrides();
 
 	std::vector<int> visible;
 
@@ -1127,287 +933,106 @@ void PDMainWindow::drawTargetModal()
 	endModal();
 }
 
-void PDMainWindow::drawSettingRow(PDSettingDeclaration const &declaration, bool loaded)
+void PDMainWindow::drawFeaturesView()
 {
-	PDSettingsStore &store = m_app.settings();
+	PDSettingsStore& store = m_app.settings();
+	bool const packScope = not m_settingsTarget.empty();
 
-	const bool packScope = not m_settingsTarget.empty();
-	const bool overridden = packScope and store.hasOverride(m_settingsModule, m_settingsTarget, declaration.id);
-	const bool isButton = declaration.kind == PDSettingKind::Button;
-	const bool editable = isButton or not packScope or overridden;
+	beginToolbar();
+	drawTargetButton();
+	ImGui::SameLine();
 
-	const ImVec2 position = ImGui::GetCursorScreenPos();
-	const ImVec2 size(ImGui::GetContentRegionAvail().x, SettingRowHeight);
-	const ImVec2 rectMax(position.x + size.x, position.y + size.y);
-
-	ImDrawList *drawList = ImGui::GetWindowDrawList();
-	drawList->AddRectFilled(position, rectMax, ImGui::GetColorU32(PDTheme::CardBg), 0.0f);
-	drawList->AddRect(position, rectMax, ImGui::GetColorU32(PDTheme::CardBorder), 0.0f, 0, 1.0f);
-
-	const float lineHeight = ImGui::GetTextLineHeight();
-	const float firstY = position.y + (SettingRowHeight - lineHeight * 2.0f - 2.0f) * 0.5f;
-
-	drawList->AddText(
-		ImVec2(position.x + RowPad, firstY),
-		ImGui::GetColorU32(PDTheme::White),
-		declaration.label.c_str());
-
-	drawList->AddText(
-		ImVec2(position.x + RowPad, firstY + lineHeight + 2.0f),
-		ImGui::GetColorU32(PDTheme::TextFaint),
-		declaration.id.c_str());
-
-	const float controlHeight = ImGui::GetFrameHeight();
-	const float controlY = position.y + (SettingRowHeight - controlHeight) * 0.5f;
-	const float controlLeft = rectMax.x - RowPad - SettingControlWidth;
-	const float markerLeft = controlLeft - 8.0f - controlHeight;
-
-	PDSettingValue value = store.value(m_settingsModule, m_settingsTarget, declaration.id);
-	bool changed = false;
-	bool commit = false;
-
-	ImGui::SetCursorScreenPos(ImVec2(controlLeft, controlY));
-	ImGui::SetNextItemWidth(SettingControlWidth);
-	ImGui::BeginDisabled(not editable);
-
-	switch (declaration.kind)
+	if (ImGui::Button("\xE2\x86\xBB"))
 	{
-		case PDSettingKind::Checkbox:
+		m_app.reshuffle();
+	}
+
+	if (ImGui::IsItemHovered())
+	{
+		ImGui::SetTooltip("Reshuffle behaviors");
+	}
+
+	ImGui::SameLine();
+
+	if (ImGui::Button("x"))
+	{
+		if (packScope)
 		{
-			bool current = value.boolean;
-
-			if (ImGui::Checkbox("##value", &current))
-			{
-				value.type = PDSettingValueType::Boolean;
-				value.boolean = current;
-				changed = true;
-				commit = true;
-			}
-
-			break;
+			store.clearOverride(m_settingsTarget);
+		}
+		else
+		{
+			store.setValue(std::string(), PDSettings());
 		}
 
-		case PDSettingKind::Slider:
+		if (not store.save())
 		{
-			float current = value.number;
-
-			if (ImGui::SliderFloat("##value", &current, declaration.minimum, declaration.maximum, "%.2f"))
-			{
-				value.type = PDSettingValueType::Number;
-				value.number = current;
-				changed = true;
-			}
-
-			commit = ImGui::IsItemDeactivatedAfterEdit();
-
-			break;
+			m_diagnostics.write("Could not save feature settings");
 		}
+	}
 
-		case PDSettingKind::Text:
+	if (ImGui::IsItemHovered())
+	{
+		ImGui::SetTooltip(packScope ? "Use global settings" : "Reset feature settings");
+	}
+
+	endToolbar();
+	drawTargetModal();
+
+	PDSettings value = store.value(m_settingsTarget);
+	bool overridden = store.hasOverride(m_settingsTarget);
+
+	if (not m_settingsTarget.empty())
+	{
+		if (ImGui::Checkbox("Override global settings", &overridden))
 		{
-			std::string current = value.text;
-
-			if (ImGui::InputText("##value", &current))
+			if (overridden)
 			{
-				value.type = PDSettingValueType::Text;
-				value.text = current;
-				changed = true;
+				store.setValue(m_settingsTarget, value);
+			}
+			else
+			{
+				store.clearOverride(m_settingsTarget);
+				value = store.value(m_settingsTarget);
 			}
 
-			commit = ImGui::IsItemDeactivatedAfterEdit();
-
-			break;
+			if (not store.save())
+			{
+				m_diagnostics.write("Could not save feature settings");
+			}
 		}
+	}
 
-		case PDSettingKind::Dropdown:
-		{
-			std::vector<const char *> items;
-			items.reserve(declaration.options.size());
-			int current = 0;
+	ImGui::BeginDisabled(not m_settingsTarget.empty() and not overridden);
 
-			for (std::size_t index = 0; index < declaration.options.size(); index += 1)
-			{
-				items.push_back(declaration.options[index].c_str());
+	bool changed = ImGui::Checkbox("Movement", &value.movement);
+	changed = ImGui::Checkbox("Flying", &value.flying) or changed;
+	changed = ImGui::Checkbox("Extended behaviors", &value.extended) or changed;
+	changed = ImGui::Checkbox("Linked behaviors", &value.linked) or changed;
+	changed = ImGui::Checkbox("Interactions", &value.interactions) or changed;
+	changed = ImGui::Checkbox("Dragging", &value.dragging) or changed;
+	changed = ImGui::Checkbox("Names on hover", &value.names) or changed;
 
-				if (declaration.options[index] == value.text)
-				{
-					current = static_cast<int>(index);
-				}
-			}
+	ImGui::SetNextItemWidth(190.0f);
+	changed = ImGui::SliderFloat("Speed", &value.speed, 0.1f, 4.0f, "%.2fx", ImGuiSliderFlags_AlwaysClamp) or changed;
 
-			if (not items.empty() and ImGui::Combo("##value", &current, items.data(), static_cast<int>(items.size())))
-			{
-				value.type = PDSettingValueType::Text;
-				value.text = declaration.options[static_cast<std::size_t>(current)];
-				changed = true;
-				commit = true;
-			}
+	char const* const positions[] = {"Anywhere", "Ground", "Center"};
+	int start = (int)value.start;
+	ImGui::SetNextItemWidth(190.0f);
 
-			break;
-		}
-
-		case PDSettingKind::Button:
-		{
-			ImGui::BeginDisabled(not loaded);
-
-			if (ImGui::Button("Run", ImVec2(SettingControlWidth, controlHeight)))
-			{
-				m_app.pressSettingButton(m_settingsModule, declaration.id);
-			}
-
-			ImGui::EndDisabled();
-
-			if (not loaded and ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-			{
-				ImGui::SetTooltip("Load this module to run its actions");
-			}
-
-			break;
-		}
-
-		default:
-		{
-			break;
-		}
+	if (ImGui::Combo("Spawn position", &start, positions, 3))
+	{
+		value.start = (PDSpawnPosition)start;
+		changed = true;
 	}
 
 	ImGui::EndDisabled();
 
-	if (not isButton)
-	{
-		ImGui::SetCursorScreenPos(ImVec2(markerLeft, controlY));
-
-		if (packScope)
-		{
-			bool current = overridden;
-
-			if (ImGui::Checkbox("##override", &current))
-			{
-				if (current)
-				{
-					store.setValue(m_settingsModule, m_settingsTarget, declaration.id, value);
-				}
-				else
-				{
-					store.clearValue(m_settingsModule, m_settingsTarget, declaration.id);
-				}
-
-				store.save();
-			}
-
-			if (ImGui::IsItemHovered())
-			{
-				ImGui::SetTooltip("Override this setting for %s", m_settingsTargetLabel.c_str());
-			}
-		}
-		else if (store.hasStoredValue(m_settingsModule, declaration.id))
-		{
-			if (ImGui::Button("x", ImVec2(controlHeight, controlHeight)))
-			{
-				store.clearValue(m_settingsModule, std::string(), declaration.id);
-				store.save();
-			}
-
-			if (ImGui::IsItemHovered())
-			{
-				ImGui::SetTooltip("Reset to the script default");
-			}
-		}
-	}
-
 	if (changed)
 	{
-		store.setValue(m_settingsModule, m_settingsTarget, declaration.id, value);
+		store.setValue(m_settingsTarget, value);
+		m_featuresDirty = true;
 	}
-
-	if (commit)
-	{
-		store.save();
-	}
-
-	ImGui::SetCursorScreenPos(position);
-	ImGui::Dummy(ImVec2(size.x, SettingRowHeight + 4.0f));
-}
-
-void PDMainWindow::drawModuleSettings()
-{
-	bool back = false;
-
-	beginToolbar();
-
-	if (ImGui::Button("Back"))
-	{
-		back = true;
-	}
-
-	ImGui::SameLine();
-
-	if (ImGui::Button("Open in editor"))
-	{
-		openInEditor();
-	}
-
-	ImGui::SameLine();
-	drawTargetButton();
-	toolbarSummary(m_settingsModule.c_str());
-	endToolbar();
-
-	drawTargetModal();
-
-	if (back)
-	{
-		m_settingsModule.clear();
-		m_settingsModulePath.clear();
-
-		return;
-	}
-
-	m_loadedScripts = m_app.loadedScripts();
-
-	const bool loaded = std::find(m_loadedScripts.begin(), m_loadedScripts.end(), m_settingsModulePath) != m_loadedScripts.end();
-	std::vector<PDSettingDeclaration> const declarations = m_app.settings().declarations(m_settingsModule);
-
-	const ImVec2 panelMin = ImGui::GetCursorScreenPos();
-	const ImVec2 panelSize = ImGui::GetContentRegionAvail();
-	const ImVec2 panelMax(panelMin.x + panelSize.x, panelMin.y + panelSize.y);
-
-	addShadow(ImGui::GetWindowDrawList(), panelMin, panelMax);
-
-	ImGui::PushStyleColor(ImGuiCol_ChildBg, PDTheme::Toolbar);
-	ImGui::PushStyleColor(ImGuiCol_Border, PDTheme::CardBorder);
-	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0f, 12.0f));
-	ImGui::BeginChild("settingsPanel", panelSize, ImGuiChildFlags_Borders | ImGuiChildFlags_AlwaysUseWindowPadding);
-
-	if (declarations.empty() and loaded)
-	{
-		ImGui::PushStyleColor(ImGuiCol_Text, PDTheme::TextDim);
-		ImGui::TextWrapped("This module does not declare any settings.");
-		ImGui::PopStyleColor();
-	}
-	else if (declarations.empty())
-	{
-		ImGui::PushStyleColor(ImGuiCol_Text, PDTheme::TextDim);
-		ImGui::TextWrapped("Load this module to see the settings it declares.");
-		ImGui::PopStyleColor();
-
-		ImGui::Dummy(ImVec2(0.0f, 8.0f));
-
-		if (ImGui::Button("Load", ImVec2(ToggleWidth, 0.0f)))
-		{
-			m_app.setScriptLoaded(m_settingsModulePath, true);
-		}
-	}
-
-	for (PDSettingDeclaration const &declaration : declarations)
-	{
-		ImGui::PushID(declaration.id.c_str());
-		drawSettingRow(declaration, loaded);
-		ImGui::PopID();
-	}
-
-	ImGui::EndChild();
-	ImGui::PopStyleVar();
-	ImGui::PopStyleColor(2);
 }
 
 void PDMainWindow::drawSettingsView()
@@ -1485,7 +1110,7 @@ void PDMainWindow::drawSettingsView()
 	ImGui::PopStyleColor();
 
 	ImGui::PushStyleColor(ImGuiCol_Text, PDTheme::TextDim);
-	ImGui::TextWrapped("Module settings, pack overrides and walkable displays are stored here:");
+	ImGui::TextWrapped("Feature settings, pack overrides and walkable displays are stored here:");
 	ImGui::PopStyleColor();
 
 	ImGui::PushStyleColor(ImGuiCol_Text, PDTheme::TextFaint);
@@ -1540,7 +1165,7 @@ void PDMainWindow::importConfig()
 
 	m_configFailed = not m_app.settings().importFrom(path);
 
-	m_configStatus = m_configFailed ? ("Could not read " + path) : ("Imported from " + path);
+	m_configStatus = m_configFailed ? ("Could not import " + path) : ("Imported from " + path);
 
 	m_diagnostics.write(m_configStatus);
 }

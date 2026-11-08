@@ -1,40 +1,21 @@
 #pragma once
 
-#include <string>
-#include <vector>
-
-enum class PDSettingKind
+enum class PDSpawnPosition
 {
-	Checkbox,
-	Slider,
-	Text,
-	Dropdown,
-	Button
+	Anywhere,
+	Ground,
+	Center
 };
 
-enum class PDSettingValueType
+struct PDSettings
 {
-	None,
-	Boolean,
-	Number,
-	Text
-};
-
-struct PDSettingValue
-{
-	PDSettingValueType type = PDSettingValueType::None;
-	bool boolean = false;
-	float number = 0.0f;
-	std::string text;
-};
-
-struct PDSettingDeclaration
-{
-	std::string id;
-	std::string label;
-	PDSettingKind kind = PDSettingKind::Checkbox;
-	PDSettingValue defaultValue;
-	float minimum = 0.0f;
-	float maximum = 1.0f;
-	std::vector<std::string> options;
+	bool movement = true;
+	bool flying = true;
+	bool extended = true;
+	bool interactions = false;
+	bool dragging = true;
+	bool names = true;
+	bool linked = true;
+	float speed = 1.0f;
+	PDSpawnPosition start = PDSpawnPosition::Anywhere;
 };

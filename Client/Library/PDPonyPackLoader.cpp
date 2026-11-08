@@ -1,12 +1,15 @@
 #include <Library/PDPonyPackLoader.h>
 
+#include <Core/PDPaths.h>
 #include <Library/PDPonyPackOverride.h>
 
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 
 static std::string stringOr(nlohmann::json const &object, char const *key, std::string const &fallback)
 {
@@ -15,18 +18,42 @@ static std::string stringOr(nlohmann::json const &object, char const *key, std::
 	return found != object.end() and found->is_string() ? found->get<std::string>() : fallback;
 }
 
-static float numberOr(nlohmann::json const &object, char const *key, float fallback)
+static float numberOr(nlohmann::json const& object, char const* key, float fallback)
 {
-	auto const found = object.find(key);
+	nlohmann::json::const_iterator const found = object.find(key);
 
-	return found != object.end() and found->is_number() ? found->get<float>() : fallback;
+	if (found == object.end() or not found->is_number())
+	{
+		return fallback;
+	}
+
+	double const value = found->get<double>();
+
+	if (not std::isfinite(value) or value < -std::numeric_limits<float>::max() or value > std::numeric_limits<float>::max())
+	{
+		return fallback;
+	}
+
+	return (float)value;
 }
 
-static int intOr(nlohmann::json const &object, char const *key, int fallback)
+static int intOr(nlohmann::json const& object, char const* key, int fallback)
 {
-	auto const found = object.find(key);
+	nlohmann::json::const_iterator const found = object.find(key);
 
-	return found != object.end() and found->is_number_integer() ? found->get<int>() : fallback;
+	if (found == object.end() or not found->is_number_integer())
+	{
+		return fallback;
+	}
+
+	double const value = found->get<double>();
+
+	if (value < std::numeric_limits<int>::min() or value > std::numeric_limits<int>::max())
+	{
+		return fallback;
+	}
+
+	return found->get<int>();
 }
 
 static bool boolOr(nlohmann::json const &object, char const *key, bool fallback)
@@ -64,7 +91,7 @@ static std::string absolutePath(std::filesystem::path const &packPath, std::stri
 		return std::string();
 	}
 
-	return (packPath / relative).lexically_normal().string();
+	return pathString((packPath / nativePath(relative)).lexically_normal());
 }
 
 static bool groupHasBehavior(PDPonyPackData const &data, int group)
@@ -180,14 +207,14 @@ bool loadPonyPack(std::string const &packPath, PDPonyPackData &outData, std::str
 {
 	outData = PDPonyPackData();
 
-	std::filesystem::path const root(packPath);
-	std::filesystem::path const jsonPath(ponyPackDocumentPath(packPath));
+	std::filesystem::path const root = nativePath(packPath);
+	std::filesystem::path const jsonPath = nativePath(ponyPackDocumentPath(packPath));
 
 	std::ifstream stream(jsonPath, std::ios::binary);
 
 	if (not stream)
 	{
-		outError = "cannot open " + jsonPath.string();
+		outError = "cannot open " + pathString(jsonPath);
 
 		return false;
 	}
@@ -198,22 +225,22 @@ bool loadPonyPack(std::string const &packPath, PDPonyPackData &outData, std::str
 	{
 		stream >> document;
 	}
-	catch (nlohmann::json::parse_error const &error)
+	catch (nlohmann::json::exception const& error)
 	{
-		outError = std::string("parse error in ") + jsonPath.string() + ": " + error.what();
+		outError = std::string("parse error in ") + pathString(jsonPath) + ": " + error.what();
 
 		return false;
 	}
 
 	if (not document.is_object())
 	{
-		outError = jsonPath.string() + " is not a JSON object";
+		outError = pathString(jsonPath) + " is not a JSON object";
 
 		return false;
 	}
 
-	outData.packPath = root.lexically_normal().string();
-	outData.id = stringOr(document, "id", root.filename().string());
+	outData.packPath = pathString(root.lexically_normal());
+	outData.id = stringOr(document, "id", pathString(root.filename()));
 	outData.name = stringOr(document, "name", outData.id);
 	outData.previewPath = absolutePath(root, stringOr(document, "preview", std::string()));
 
@@ -253,7 +280,7 @@ bool loadPonyPack(std::string const &packPath, PDPonyPackData &outData, std::str
 
 	if (outData.animations.empty())
 	{
-		outError = jsonPath.string() + " has no usable animations";
+		outError = pathString(jsonPath) + " has no usable animations";
 
 		return false;
 	}
@@ -306,7 +333,7 @@ bool loadPonyPack(std::string const &packPath, PDPonyPackData &outData, std::str
 
 	if (outData.behaviors.empty())
 	{
-		outError = jsonPath.string() + " has no usable behaviors";
+		outError = pathString(jsonPath) + " has no usable behaviors";
 
 		return false;
 	}

@@ -1,5 +1,6 @@
 #include <UI/PDFileDialog.h>
 
+#include <Core/PDPaths.h>
 #include <Core/PDString.h>
 
 #include <commdlg.h>
@@ -28,7 +29,7 @@ bool openFileDialog(HWND owner, const char *title, std::string &outPath)
 		return false;
 	}
 
-	outPath = std::filesystem::path(buffer.data()).string();
+	outPath = pathString(std::filesystem::path(buffer.data()));
 
 	return true;
 }
@@ -60,7 +61,7 @@ bool saveFileDialog(HWND owner, const char *title, const char *suggestedName, st
 		return false;
 	}
 
-	outPath = std::filesystem::path(buffer.data()).string();
+	outPath = pathString(std::filesystem::path(buffer.data()));
 
 	return true;
 }

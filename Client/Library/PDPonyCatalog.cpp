@@ -1,5 +1,7 @@
 #include <Library/PDPonyCatalog.h>
 
+#include <Core/PDPaths.h>
+
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -14,7 +16,7 @@ void PDPonyCatalog::load(std::string const &packsRoot)
 	std::unordered_map<std::string, std::size_t> groupByName;
 	std::error_code error;
 
-	for (std::filesystem::directory_iterator it(packsRoot, error), end; it != end and not error; it.increment(error))
+	for (std::filesystem::directory_iterator it(nativePath(packsRoot), error), end; it != end and not error; it.increment(error))
 	{
 		std::filesystem::path const packPath = it->path();
 		std::filesystem::path const jsonPath = packPath / "pony.json";
@@ -32,14 +34,28 @@ void PDPonyCatalog::load(std::string const &packsRoot)
 		{
 			stream >> document;
 		}
-		catch (nlohmann::json::parse_error const &)
+		catch (nlohmann::json::exception const&)
 		{
 			continue;
 		}
 
-		std::string const id = document.value("id", std::string());
-		std::string const displayName = document.value("name", id);
-		std::string const preview = document.value("preview", std::string());
+		if (not document.is_object())
+		{
+			continue;
+		}
+
+		nlohmann::json::const_iterator const idNode = document.find("id");
+		nlohmann::json::const_iterator const nameNode = document.find("name");
+		nlohmann::json::const_iterator const previewNode = document.find("preview");
+
+		if (idNode == document.end() or not idNode->is_string())
+		{
+			continue;
+		}
+
+		std::string const id = idNode->get<std::string>();
+		std::string const displayName = nameNode != document.end() and nameNode->is_string() ? nameNode->get<std::string>() : id;
+		std::string const preview = previewNode != document.end() and previewNode->is_string() ? previewNode->get<std::string>() : std::string();
 
 		if (id.empty() or id == "random-pony")
 		{
@@ -48,8 +64,8 @@ void PDPonyCatalog::load(std::string const &packsRoot)
 
 		PDPonyPack pack;
 		pack.id = id;
-		pack.packPath = packPath.string();
-		pack.previewPath = preview.empty() ? std::string() : (packPath / preview).string();
+		pack.packPath = pathString(packPath);
+		pack.previewPath = preview.empty() ? std::string() : pathString(packPath / nativePath(preview));
 
 		auto const existing = groupByName.find(displayName);
 

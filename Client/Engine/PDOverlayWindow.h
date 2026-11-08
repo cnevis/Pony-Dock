@@ -62,7 +62,7 @@ private:
 
 	bool createDevice();
 	void destroyDevice();
-	void createRenderTarget();
+	bool createRenderTarget();
 	void destroyRenderTarget();
 
 	HWND m_window = nullptr;

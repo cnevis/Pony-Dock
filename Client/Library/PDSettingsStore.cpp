@@ -1,5 +1,7 @@
 #include <Library/PDSettingsStore.h>
 
+#include <Core/PDPaths.h>
+
 #include <windows.h>
 
 #include <shlobj.h>
@@ -7,8 +9,11 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cassert>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <utility>
 
 static std::string resolveSettingsPath()
@@ -26,91 +31,175 @@ static std::string resolveSettingsPath()
 	path /= "Pony Dock";
 	path /= "settings.json";
 
-	return path.string();
+	return pathString(path);
 }
 
-static nlohmann::json settingToJson(PDSettingValue const &value)
+static void sanitizeSettings(PDSettings* value)
 {
-	switch (value.type)
+	assert(value != nullptr);
+
+	if (not std::isfinite(value->speed))
 	{
-		case PDSettingValueType::Boolean:
+		value->speed = 1.0f;
+	}
+
+	value->speed = std::clamp(value->speed, 0.1f, 4.0f);
+
+	switch (value->start)
+	{
+		case PDSpawnPosition::Anywhere:
 		{
-			return value.boolean;
+			break;
 		}
 
-		case PDSettingValueType::Number:
+		case PDSpawnPosition::Ground:
 		{
-			return value.number;
+			break;
 		}
 
-		case PDSettingValueType::Text:
+		case PDSpawnPosition::Center:
 		{
-			return value.text;
+			break;
 		}
 
 		default:
 		{
-			return nullptr;
+			value->start = PDSpawnPosition::Anywhere;
+
+			break;
 		}
 	}
 }
 
-static PDSettingValue settingFromJson(nlohmann::json const &node)
+static PDSettings readSettings(nlohmann::json const& node, PDSettings const& fallback)
 {
-	PDSettingValue value;
+	PDSettings value = fallback;
+	double const speed = node.value("speed", (double)value.speed);
+	std::string const start = node.value("start", std::string());
 
-	if (node.is_boolean())
+	value.movement = node.value("movement", value.movement);
+	value.flying = node.value("flying", value.flying);
+	value.extended = node.value("extended", value.extended);
+	value.interactions = node.value("interactions", value.interactions);
+	value.dragging = node.value("dragging", value.dragging);
+	value.names = node.value("names", value.names);
+	value.linked = node.value("linked", value.linked);
+	value.speed = std::isfinite(speed) ? (float)std::clamp(speed, 0.1, 4.0) : 1.0f;
+
+	if (start == "Ground")
 	{
-		value.type = PDSettingValueType::Boolean;
-		value.boolean = node.get<bool>();
+		value.start = PDSpawnPosition::Ground;
 	}
-	else if (node.is_number())
+	else if (start == "Center")
 	{
-		value.type = PDSettingValueType::Number;
-		value.number = node.get<float>();
+		value.start = PDSpawnPosition::Center;
 	}
-	else if (node.is_string())
+	else if (not start.empty())
 	{
-		value.type = PDSettingValueType::Text;
-		value.text = node.get<std::string>();
+		value.start = PDSpawnPosition::Anywhere;
 	}
+
+	sanitizeSettings(&value);
 
 	return value;
 }
 
-static void readValues(nlohmann::json const &node, std::unordered_map<std::string, PDSettingValue> &values)
-{
-	if (not node.is_object())
-	{
-		return;
-	}
-
-	for (auto const &entry : node.items())
-	{
-		PDSettingValue parsed = settingFromJson(entry.value());
-
-		if (parsed.type != PDSettingValueType::None)
-		{
-			values[entry.key()] = std::move(parsed);
-		}
-	}
-}
-
-static nlohmann::json writeValues(std::unordered_map<std::string, PDSettingValue> const &values)
+static nlohmann::json writeSettings(PDSettings const& value)
 {
 	nlohmann::json node = nlohmann::json::object();
+	std::string start = "Anywhere";
 
-	for (auto const &entry : values)
+	switch (value.start)
 	{
-		nlohmann::json const value = settingToJson(entry.second);
-
-		if (not value.is_null())
+		case PDSpawnPosition::Ground:
 		{
-			node[entry.first] = value;
+			start = "Ground";
+
+			break;
+		}
+
+		case PDSpawnPosition::Center:
+		{
+			start = "Center";
+
+			break;
+		}
+
+		default:
+		{
+			break;
 		}
 	}
 
+	node["movement"] = value.movement;
+	node["flying"] = value.flying;
+	node["extended"] = value.extended;
+	node["interactions"] = value.interactions;
+	node["dragging"] = value.dragging;
+	node["names"] = value.names;
+	node["linked"] = value.linked;
+	node["speed"] = value.speed;
+	node["start"] = start;
+
 	return node;
+}
+
+static bool readLegacySettings(nlohmann::json const& modules, PDSettingsSnapshot* snapshot)
+{
+	assert(snapshot != nullptr);
+	nlohmann::json const core = modules.value("core.lua", nlohmann::json::object());
+	nlohmann::json const interactions = modules.value("interactions.lua", nlohmann::json::object());
+	nlohmann::json const coreValues = core.value("settings", nlohmann::json::object());
+	nlohmann::json const interactionValues = interactions.value("settings", nlohmann::json::object());
+	nlohmann::json const corePacks = core.value("packs", nlohmann::json::object());
+	nlohmann::json const interactionPacks = interactions.value("packs", nlohmann::json::object());
+
+	if (not corePacks.is_object() or not interactionPacks.is_object())
+	{
+		return false;
+	}
+
+	snapshot->defaults = readSettings(coreValues, snapshot->defaults);
+	snapshot->defaults.interactions = interactionValues.value("enabled", snapshot->defaults.interactions);
+
+	for (nlohmann::json::const_iterator it = corePacks.begin(); it != corePacks.end(); ++it)
+	{
+		if (it.key().empty())
+		{
+			continue;
+		}
+
+		if (not it->contains("speed")
+			and not it->contains("flying")
+			and not it->contains("extended")
+			and not it->contains("start")
+			and not it->contains("names"))
+		{
+			continue;
+		}
+
+		snapshot->packs[it.key()] = readSettings(it.value(), snapshot->defaults);
+	}
+
+	for (nlohmann::json::const_iterator it = interactionPacks.begin(); it != interactionPacks.end(); ++it)
+	{
+		if (it.key().empty())
+		{
+			continue;
+		}
+
+		if (not it->contains("enabled"))
+		{
+			continue;
+		}
+
+		std::unordered_map<std::string, PDSettings>::iterator const existing = snapshot->packs.find(it.key());
+		PDSettings value = existing == snapshot->packs.end() ? snapshot->defaults : existing->second;
+		value.interactions = it.value().value("enabled", value.interactions);
+		snapshot->packs[it.key()] = value;
+	}
+
+	return true;
 }
 
 PDSettingsStore::PDSettingsStore()
@@ -118,364 +207,97 @@ PDSettingsStore::PDSettingsStore()
 {
 }
 
-std::string PDSettingsStore::moduleKey(std::string const &scriptsRoot, std::string const &fullPath)
+bool PDSettingsStore::load()
 {
-	std::filesystem::path const root = std::filesystem::path(scriptsRoot).lexically_normal();
-	std::filesystem::path const full = std::filesystem::path(fullPath).lexically_normal();
-	std::filesystem::path const relative = full.lexically_relative(root);
-
-	if (relative.empty())
-	{
-		return full.filename().generic_string();
-	}
-
-	return relative.generic_string();
+	return readFrom(m_path);
 }
 
-PDSettingValueType PDSettingsStore::expectedType(PDSettingKind kind)
+bool PDSettingsStore::save() const
 {
-	switch (kind)
-	{
-		case PDSettingKind::Checkbox:
-		{
-			return PDSettingValueType::Boolean;
-		}
-
-		case PDSettingKind::Slider:
-		{
-			return PDSettingValueType::Number;
-		}
-
-		case PDSettingKind::Text:
-		{
-			return PDSettingValueType::Text;
-		}
-
-		case PDSettingKind::Dropdown:
-		{
-			return PDSettingValueType::Text;
-		}
-
-		default:
-		{
-			return PDSettingValueType::None;
-		}
-	}
+	return writeTo(m_path);
 }
 
-void PDSettingsStore::reconcile(PDSettingDeclaration const &declaration, PDSettingValues &values)
+bool PDSettingsStore::exportTo(std::string const& path) const
 {
-	auto const existing = values.find(declaration.id);
-
-	if (existing == values.end())
-	{
-		return;
-	}
-
-	if (existing->second.type != expectedType(declaration.kind))
-	{
-		values.erase(existing);
-
-		return;
-	}
-
-	switch (declaration.kind)
-	{
-		case PDSettingKind::Slider:
-		{
-			existing->second.number = std::clamp(existing->second.number, declaration.minimum, declaration.maximum);
-
-			break;
-		}
-
-		case PDSettingKind::Dropdown:
-		{
-			if (std::find(declaration.options.begin(), declaration.options.end(), existing->second.text) == declaration.options.end())
-			{
-				values.erase(existing);
-			}
-
-			break;
-		}
-
-		default:
-		{
-			break;
-		}
-	}
+	return writeTo(path);
 }
 
-PDSettingsStore::Module const *PDSettingsStore::findModule(std::string const &key) const
+bool PDSettingsStore::importFrom(std::string const& path)
 {
-	auto const existing = m_modules.find(key);
+	PDSettingsStore imported;
 
-	if (existing == m_modules.end())
+	if (not imported.readFrom(path))
 	{
-		return nullptr;
-	}
-
-	return &existing->second;
-}
-
-void PDSettingsStore::beginModule(std::string const &key)
-{
-	std::unique_lock<std::shared_mutex> const lock(m_mutex);
-	m_modules[key].declarations.clear();
-	m_version.fetch_add(1, std::memory_order_release);
-}
-
-bool PDSettingsStore::declare(std::string const &key, PDSettingDeclaration declaration, std::string &outWarning)
-{
-	if (declaration.id.empty())
-	{
-		outWarning = "setting declared without an id";
-
 		return false;
 	}
 
-	if (declaration.kind == PDSettingKind::Dropdown)
+	if (not imported.writeTo(m_path))
 	{
-		if (declaration.options.empty())
-		{
-			outWarning = "dropdown '" + declaration.id + "' declared with no options";
-
-			return false;
-		}
-
-		if (std::find(declaration.options.begin(), declaration.options.end(), declaration.defaultValue.text) == declaration.options.end())
-		{
-			outWarning = "dropdown '" + declaration.id + "' default is not one of its options";
-			declaration.defaultValue.text = declaration.options.front();
-		}
-	}
-
-	if (declaration.kind == PDSettingKind::Slider and declaration.maximum < declaration.minimum)
-	{
-		outWarning = "slider '" + declaration.id + "' has a maximum below its minimum";
-		std::swap(declaration.minimum, declaration.maximum);
+		return false;
 	}
 
 	std::unique_lock<std::shared_mutex> const lock(m_mutex);
-	Module &module = m_modules[key];
+	m_defaults = imported.m_defaults;
+	m_packs = std::move(imported.m_packs);
+	m_app = std::move(imported.m_app);
+	m_version.fetch_add(1, std::memory_order_release);
 
-	if (declaration.kind == PDSettingKind::Button)
+	return true;
+}
+
+PDSettings PDSettingsStore::value(std::string const& packId) const
+{
+	std::shared_lock<std::shared_mutex> const lock(m_mutex);
+	std::unordered_map<std::string, PDSettings>::const_iterator const existing = m_packs.find(packId);
+
+	return existing == m_packs.end() ? m_defaults : existing->second;
+}
+
+void PDSettingsStore::setValue(std::string const& packId, PDSettings const& value)
+{
+	PDSettings stored = value;
+	sanitizeSettings(&stored);
+
+	std::unique_lock<std::shared_mutex> const lock(m_mutex);
+
+	if (packId.empty())
 	{
-		module.values.erase(declaration.id);
-
-		for (std::pair<std::string const, PDSettingValues> &pack : module.packs)
-		{
-			pack.second.erase(declaration.id);
-		}
+		m_defaults = stored;
 	}
 	else
 	{
-		reconcile(declaration, module.values);
-
-		for (std::pair<std::string const, PDSettingValues> &pack : module.packs)
-		{
-			reconcile(declaration, pack.second);
-		}
+		m_packs[packId] = stored;
 	}
 
-	for (PDSettingDeclaration &current : module.declarations)
-	{
-		if (current.id == declaration.id)
-		{
-			current = std::move(declaration);
-			m_version.fetch_add(1, std::memory_order_release);
-
-			return true;
-		}
-	}
-
-	if (module.declarations.size() >= MaxDeclarations)
-	{
-		outWarning = "module '" + key + "' declared more than " + std::to_string(MaxDeclarations) + " settings";
-
-		return false;
-	}
-
-	module.declarations.push_back(std::move(declaration));
 	m_version.fetch_add(1, std::memory_order_release);
-
-	return true;
 }
 
-void PDSettingsStore::clearDeclarations(std::string const &key)
+bool PDSettingsStore::hasOverride(std::string const& packId) const
+{
+	std::shared_lock<std::shared_mutex> const lock(m_mutex);
+
+	return m_packs.find(packId) != m_packs.end();
+}
+
+void PDSettingsStore::clearOverride(std::string const& packId)
 {
 	std::unique_lock<std::shared_mutex> const lock(m_mutex);
 
-	auto const existing = m_modules.find(key);
-
-	if (existing != m_modules.end())
+	if (m_packs.erase(packId) != 0)
 	{
-		existing->second.declarations.clear();
+		m_version.fetch_add(1, std::memory_order_release);
 	}
-
-	m_version.fetch_add(1, std::memory_order_release);
 }
 
-void PDSettingsStore::clearAllDeclarations()
-{
-	std::unique_lock<std::shared_mutex> const lock(m_mutex);
-
-	for (std::pair<std::string const, Module> &entry : m_modules)
-	{
-		entry.second.declarations.clear();
-	}
-
-	m_version.fetch_add(1, std::memory_order_release);
-}
-
-bool PDSettingsStore::refresh(PDSettingsSnapshot &snapshot) const
-{
-	std::uint64_t const version = m_version.load(std::memory_order_acquire);
-
-	if (snapshot.version == version)
-	{
-		return false;
-	}
-
-	std::shared_lock<std::shared_mutex> const lock(m_mutex);
-	snapshot.modules.clear();
-
-	for (std::pair<std::string const, Module> const &entry : m_modules)
-	{
-		PDSettingsModuleSnapshot &target = snapshot.modules[entry.first];
-		target.values = entry.second.values;
-		target.packs = entry.second.packs;
-
-		for (PDSettingDeclaration const &declaration : entry.second.declarations)
-		{
-			if (declaration.kind == PDSettingKind::Button)
-			{
-				continue;
-			}
-
-			if (target.values.find(declaration.id) == target.values.end())
-			{
-				target.values[declaration.id] = declaration.defaultValue;
-			}
-		}
-	}
-
-	snapshot.version = version;
-
-	return true;
-}
-
-std::vector<PDSettingDeclaration> PDSettingsStore::declarations(std::string const &key) const
+std::vector<std::string> PDSettingsStore::packsWithOverrides() const
 {
 	std::shared_lock<std::shared_mutex> const lock(m_mutex);
-	Module const *const module = findModule(key);
-
-	if (module == nullptr)
-	{
-		return {};
-	}
-
-	return module->declarations;
-}
-
-PDSettingValue PDSettingsStore::value(std::string const &key, std::string const &packId, std::string const &id) const
-{
-	std::shared_lock<std::shared_mutex> const lock(m_mutex);
-	Module const *const module = findModule(key);
-
-	if (module == nullptr)
-	{
-		return {};
-	}
-
-	if (not packId.empty())
-	{
-		auto const pack = module->packs.find(packId);
-
-		if (pack != module->packs.end())
-		{
-			auto const override = pack->second.find(id);
-
-			if (override != pack->second.end())
-			{
-				return override->second;
-			}
-		}
-	}
-
-	auto const stored = module->values.find(id);
-
-	if (stored != module->values.end())
-	{
-		return stored->second;
-	}
-
-	for (PDSettingDeclaration const &declaration : module->declarations)
-	{
-		if (declaration.id == id)
-		{
-			return declaration.defaultValue;
-		}
-	}
-
-	return {};
-}
-
-bool PDSettingsStore::hasOverride(std::string const &key, std::string const &packId, std::string const &id) const
-{
-	if (packId.empty())
-	{
-		return false;
-	}
-
-	std::shared_lock<std::shared_mutex> const lock(m_mutex);
-	Module const *const module = findModule(key);
-
-	if (module == nullptr)
-	{
-		return false;
-	}
-
-	auto const pack = module->packs.find(packId);
-
-	if (pack == module->packs.end())
-	{
-		return false;
-	}
-
-	return pack->second.find(id) != pack->second.end();
-}
-
-bool PDSettingsStore::hasStoredValue(std::string const &key, std::string const &id) const
-{
-	std::shared_lock<std::shared_mutex> const lock(m_mutex);
-	Module const *const module = findModule(key);
-
-	if (module == nullptr)
-	{
-		return false;
-	}
-
-	return module->values.find(id) != module->values.end();
-}
-
-std::vector<std::string> PDSettingsStore::packsWithOverrides(std::string const &key) const
-{
-	std::shared_lock<std::shared_mutex> const lock(m_mutex);
-	Module const *const module = findModule(key);
-
-	if (module == nullptr)
-	{
-		return {};
-	}
-
 	std::vector<std::string> result;
+	result.reserve(m_packs.size());
 
-	for (std::pair<std::string const, PDSettingValues> const &pack : module->packs)
+	for (std::pair<std::string const, PDSettings> const& entry : m_packs)
 	{
-		if (not pack.second.empty())
-		{
-			result.push_back(pack.first);
-		}
+		result.push_back(entry.first);
 	}
 
 	std::sort(result.begin(), result.end());
@@ -483,99 +305,41 @@ std::vector<std::string> PDSettingsStore::packsWithOverrides(std::string const &
 	return result;
 }
 
-void PDSettingsStore::setValue(std::string const &key, std::string const &packId, std::string const &id, PDSettingValue value)
+bool PDSettingsStore::refresh(PDSettingsSnapshot* snapshot) const
 {
-	std::unique_lock<std::shared_mutex> const lock(m_mutex);
-	Module &module = m_modules[key];
+	assert(snapshot != nullptr);
 
-	if (packId.empty())
-	{
-		module.values[id] = std::move(value);
-	}
-	else
-	{
-		module.packs[packId][id] = std::move(value);
-	}
-
-	m_version.fetch_add(1, std::memory_order_release);
-}
-
-void PDSettingsStore::clearValue(std::string const &key, std::string const &packId, std::string const &id)
-{
-	std::unique_lock<std::shared_mutex> const lock(m_mutex);
-
-	auto const existing = m_modules.find(key);
-
-	if (existing == m_modules.end())
-	{
-		return;
-	}
-
-	if (packId.empty())
-	{
-		existing->second.values.erase(id);
-	}
-	else
-	{
-		auto const pack = existing->second.packs.find(packId);
-
-		if (pack != existing->second.packs.end())
-		{
-			pack->second.erase(id);
-
-			if (pack->second.empty())
-			{
-				existing->second.packs.erase(pack);
-			}
-		}
-	}
-
-	m_version.fetch_add(1, std::memory_order_release);
-}
-
-bool PDSettingsStore::appFlag(std::string const &id, bool fallback) const
-{
-	std::shared_lock<std::shared_mutex> const lock(m_mutex);
-	auto const existing = m_app.find(id);
-
-	if (existing == m_app.end() or existing->second.type != PDSettingValueType::Boolean)
-	{
-		return fallback;
-	}
-
-	return existing->second.boolean;
-}
-
-void PDSettingsStore::setAppFlag(std::string const &id, bool value)
-{
-	std::unique_lock<std::shared_mutex> const lock(m_mutex);
-
-	PDSettingValue stored;
-	stored.type = PDSettingValueType::Boolean;
-	stored.boolean = value;
-	m_app[id] = std::move(stored);
-
-	m_version.fetch_add(1, std::memory_order_release);
-}
-
-bool PDSettingsStore::load()
-{
-	return readFrom(m_path, false);
-}
-
-bool PDSettingsStore::importFrom(std::string const &path)
-{
-	if (not readFrom(path, true))
+	if (snapshot->version == m_version.load(std::memory_order_acquire))
 	{
 		return false;
 	}
 
-	return save();
+	std::shared_lock<std::shared_mutex> const lock(m_mutex);
+	snapshot->defaults = m_defaults;
+	snapshot->packs = m_packs;
+	snapshot->version = m_version.load(std::memory_order_relaxed);
+
+	return true;
 }
 
-bool PDSettingsStore::readFrom(std::string const &path, bool replace)
+bool PDSettingsStore::appFlag(std::string const& id, bool fallback) const
 {
-	std::ifstream stream(path, std::ios::binary);
+	std::shared_lock<std::shared_mutex> const lock(m_mutex);
+	std::unordered_map<std::string, bool>::const_iterator const existing = m_app.find(id);
+
+	return existing == m_app.end() ? fallback : existing->second;
+}
+
+void PDSettingsStore::setAppFlag(std::string const& id, bool value)
+{
+	std::unique_lock<std::shared_mutex> const lock(m_mutex);
+	m_app[id] = value;
+	m_version.fetch_add(1, std::memory_order_release);
+}
+
+bool PDSettingsStore::readFrom(std::string const& path)
+{
+	std::ifstream stream(nativePath(path), std::ios::binary);
 
 	if (not stream)
 	{
@@ -584,161 +348,117 @@ bool PDSettingsStore::readFrom(std::string const &path, bool replace)
 
 	nlohmann::json const document = nlohmann::json::parse(stream, nullptr, false);
 
-	if (document.is_discarded() or not document.is_object())
+	if (document.is_discarded() or not document.is_object() or stream.bad())
+	{
+		return false;
+	}
+
+	PDSettingsSnapshot snapshot;
+	std::unordered_map<std::string, bool> app;
+
+	try
+	{
+		nlohmann::json const flags = document.value("app", nlohmann::json::object());
+
+		if (not flags.is_object())
+		{
+			return false;
+		}
+
+		for (nlohmann::json::const_iterator it = flags.begin(); it != flags.end(); ++it)
+		{
+			if (it->is_boolean())
+			{
+				app[it.key()] = it->get<bool>();
+			}
+		}
+
+		if (document.contains("modules") and not document.contains("defaults") and not document.contains("packs"))
+		{
+			if (not readLegacySettings(document.at("modules"), &snapshot))
+			{
+				return false;
+			}
+		}
+		else
+		{
+			nlohmann::json const defaults = document.value("defaults", nlohmann::json::object());
+			nlohmann::json const packs = document.value("packs", nlohmann::json::object());
+
+			if (not packs.is_object())
+			{
+				return false;
+			}
+
+			snapshot.defaults = readSettings(defaults, snapshot.defaults);
+
+			for (nlohmann::json::const_iterator it = packs.begin(); it != packs.end(); ++it)
+			{
+				if (it.key().empty())
+				{
+					continue;
+				}
+
+				snapshot.packs[it.key()] = readSettings(it.value(), snapshot.defaults);
+			}
+		}
+	}
+	catch (nlohmann::json::exception const&)
 	{
 		return false;
 	}
 
 	std::unique_lock<std::shared_mutex> const lock(m_mutex);
-
-	if (replace)
-	{
-		m_app.clear();
-
-		for (std::pair<std::string const, Module> &entry : m_modules)
-		{
-			entry.second.values.clear();
-			entry.second.packs.clear();
-		}
-	}
-
-	auto const app = document.find("app");
-
-	if (app != document.end())
-	{
-		readValues(*app, m_app);
-	}
-
-	auto const modules = document.find("modules");
-
-	if (modules == document.end() or not modules->is_object())
-	{
-		m_version.fetch_add(1, std::memory_order_release);
-
-		return true;
-	}
-
-	for (auto const &entry : modules->items())
-	{
-		if (not entry.value().is_object())
-		{
-			continue;
-		}
-
-		Module &module = m_modules[entry.key()];
-		auto const values = entry.value().find("settings");
-
-		if (values != entry.value().end())
-		{
-			readValues(*values, module.values);
-		}
-
-		auto const packs = entry.value().find("packs");
-
-		if (packs == entry.value().end() or not packs->is_object())
-		{
-			continue;
-		}
-
-		for (auto const &pack : packs->items())
-		{
-			readValues(pack.value(), module.packs[pack.key()]);
-		}
-	}
-
-	for (std::pair<std::string const, Module> &entry : m_modules)
-	{
-		for (PDSettingDeclaration const &declaration : entry.second.declarations)
-		{
-			if (declaration.kind == PDSettingKind::Button)
-			{
-				entry.second.values.erase(declaration.id);
-
-				for (std::pair<std::string const, PDSettingValues> &pack : entry.second.packs)
-				{
-					pack.second.erase(declaration.id);
-				}
-
-				continue;
-			}
-
-			reconcile(declaration, entry.second.values);
-
-			for (std::pair<std::string const, PDSettingValues> &pack : entry.second.packs)
-			{
-				reconcile(declaration, pack.second);
-			}
-		}
-	}
-
+	m_defaults = snapshot.defaults;
+	m_packs = std::move(snapshot.packs);
+	m_app = std::move(app);
 	m_version.fetch_add(1, std::memory_order_release);
 
 	return true;
 }
 
-bool PDSettingsStore::save() const
-{
-	return writeTo(m_path);
-}
-
-bool PDSettingsStore::exportTo(std::string const &path) const
-{
-	return writeTo(path);
-}
-
-bool PDSettingsStore::writeTo(std::string const &path) const
+bool PDSettingsStore::writeTo(std::string const& path) const
 {
 	nlohmann::json document;
 
 	{
 		std::shared_lock<std::shared_mutex> const lock(m_mutex);
-		nlohmann::json modules = nlohmann::json::object();
+		nlohmann::json packs = nlohmann::json::object();
 
-		for (std::pair<std::string const, Module> const &entry : m_modules)
+		for (std::pair<std::string const, PDSettings> const& entry : m_packs)
 		{
-			nlohmann::json values = writeValues(entry.second.values);
-			nlohmann::json packs = nlohmann::json::object();
-
-			for (std::pair<std::string const, PDSettingValues> const &pack : entry.second.packs)
-			{
-				nlohmann::json packValues = writeValues(pack.second);
-
-				if (not packValues.empty())
-				{
-					packs[pack.first] = std::move(packValues);
-				}
-			}
-
-			if (values.empty() and packs.empty())
-			{
-				continue;
-			}
-
-			nlohmann::json module = nlohmann::json::object();
-			module["settings"] = std::move(values);
-
-			if (not packs.empty())
-			{
-				module["packs"] = std::move(packs);
-			}
-
-			modules[entry.first] = std::move(module);
+			packs[entry.first] = writeSettings(entry.second);
 		}
 
-		nlohmann::json app = writeValues(m_app);
-
-		document["version"] = 1;
-		document["modules"] = std::move(modules);
-
-		if (not app.empty())
-		{
-			document["app"] = std::move(app);
-		}
+		document["version"] = 2;
+		document["defaults"] = writeSettings(m_defaults);
+		document["packs"] = std::move(packs);
+		document["app"] = m_app;
 	}
 
-	std::filesystem::path const target(path);
+	std::string text;
+
+	try
+	{
+		text = document.dump(2);
+	}
+	catch (nlohmann::json::exception const&)
+	{
+		return false;
+	}
+
+	std::filesystem::path const target = nativePath(path);
 	std::error_code error;
-	std::filesystem::create_directories(target.parent_path(), error);
+
+	if (not target.parent_path().empty())
+	{
+		std::filesystem::create_directories(target.parent_path(), error);
+
+		if (error)
+		{
+			return false;
+		}
+	}
 
 	std::filesystem::path temporary = target;
 	temporary += ".tmp";
@@ -751,7 +471,13 @@ bool PDSettingsStore::writeTo(std::string const &path) const
 			return false;
 		}
 
-		stream << document.dump(2);
+		stream << text;
+		stream.close();
+
+		if (not stream)
+		{
+			return false;
+		}
 	}
 
 	std::filesystem::rename(temporary, target, error);

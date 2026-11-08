@@ -18,7 +18,10 @@ bool PDOverlayWindow::initialize(HINSTANCE instance)
 		"PonyDockOverlayClassName",
 		nullptr};
 
-	RegisterClassEx(&windowClass);
+	if (RegisterClassEx(&windowClass) == 0)
+	{
+		return false;
+	}
 
 	m_originX = GetSystemMetrics(SM_XVIRTUALSCREEN);
 	m_originY = GetSystemMetrics(SM_YVIRTUALSCREEN);
@@ -49,6 +52,13 @@ bool PDOverlayWindow::initialize(HINSTANCE instance)
 		instance,
 		nullptr);
 
+	if (m_window == nullptr)
+	{
+		UnregisterClass(windowClass.lpszClassName, instance);
+
+		return false;
+	}
+
 	SetWindowLongPtr(m_window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
 	SetLayeredWindowAttributes(m_window, 0, 255, LWA_ALPHA);
 
@@ -57,8 +67,7 @@ bool PDOverlayWindow::initialize(HINSTANCE instance)
 
 	if (not createDevice())
 	{
-		destroyDevice();
-		UnregisterClass(windowClass.lpszClassName, instance);
+		shutdown();
 
 		return false;
 	}
@@ -71,6 +80,11 @@ bool PDOverlayWindow::initialize(HINSTANCE instance)
 void PDOverlayWindow::shutdown()
 {
 	destroyDevice();
+
+	if (m_window == nullptr)
+	{
+		return;
+	}
 
 	HINSTANCE const instance = reinterpret_cast<HINSTANCE>(GetWindowLongPtr(m_window, GWLP_HINSTANCE));
 	DestroyWindow(m_window);
@@ -141,9 +155,7 @@ bool PDOverlayWindow::createDevice()
 		return false;
 	}
 
-	createRenderTarget();
-
-	return true;
+	return createRenderTarget();
 }
 
 void PDOverlayWindow::destroyDevice()
@@ -169,12 +181,19 @@ void PDOverlayWindow::destroyDevice()
 	}
 }
 
-void PDOverlayWindow::createRenderTarget()
+bool PDOverlayWindow::createRenderTarget()
 {
-	ID3D11Texture2D *backBuffer = nullptr;
-	m_swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
-	m_device->CreateRenderTargetView(backBuffer, nullptr, &m_renderTargetView);
+	ID3D11Texture2D* backBuffer = nullptr;
+
+	if (FAILED(m_swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer))))
+	{
+		return false;
+	}
+
+	HRESULT const result = m_device->CreateRenderTargetView(backBuffer, nullptr, &m_renderTargetView);
 	backBuffer->Release();
+
+	return SUCCEEDED(result);
 }
 
 void PDOverlayWindow::destroyRenderTarget()
@@ -225,6 +244,17 @@ LRESULT PDOverlayWindow::handleMessage(HWND window, UINT message, WPARAM wParam,
 			return 0;
 		}
 
+		case WM_CAPTURECHANGED:
+		{
+			if (m_mouseDown)
+			{
+				m_mouseDown = false;
+				m_mouseReleased = true;
+			}
+
+			return 0;
+		}
+
 		case WM_DESTROY:
 		{
 			return 0;
@@ -243,6 +273,11 @@ PDOverlayMouse PDOverlayWindow::pollMouse()
 	{
 		m_mouseDown = false;
 		m_mouseReleased = true;
+
+		if (GetCapture() == m_window)
+		{
+			ReleaseCapture();
+		}
 	}
 
 	PDOverlayMouse mouse;
@@ -275,6 +310,11 @@ void PDOverlayWindow::setInteractive(bool interactive)
 	else
 	{
 		style |= WS_EX_TRANSPARENT;
+
+		if (GetCapture() == m_window)
+		{
+			ReleaseCapture();
+		}
 	}
 
 	SetWindowLongPtr(m_window, GWL_EXSTYLE, style);

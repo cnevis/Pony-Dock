@@ -36,12 +36,15 @@ private:
 
 	bool createDevice();
 	void destroyDevice();
-	void createRenderTarget();
+	bool createRenderTarget();
 	void destroyRenderTarget();
 	void beginFrame();
 	void endFrame();
 
 	HWND m_window = nullptr;
+	HINSTANCE m_instance = nullptr;
+	bool m_ready = false;
+	bool m_rendering = false;
 	int m_minClientWidth = 0;
 	int m_minClientHeight = 0;
 

@@ -1,5 +1,7 @@
 #include <Library/PDPonyPackOverride.h>
 
+#include <Core/PDPaths.h>
+
 #include <windows.h>
 
 #include <shlobj.h>
@@ -9,7 +11,7 @@
 
 static std::string packFolderName(std::string const &packPath)
 {
-	return std::filesystem::path(packPath).lexically_normal().filename().string();
+	return pathString(nativePath(packPath).lexically_normal().filename());
 }
 
 std::string ponyPackOverrideRoot()
@@ -27,7 +29,7 @@ std::string ponyPackOverrideRoot()
 	path /= "Pony Dock";
 	path /= "overrides";
 
-	return path.string();
+	return pathString(path);
 }
 
 std::string ponyPackOverridePath(std::string const &packPath)
@@ -39,7 +41,7 @@ std::string ponyPackOverridePath(std::string const &packPath)
 		return std::string();
 	}
 
-	return (std::filesystem::path(ponyPackOverrideRoot()) / (folder + ".json")).string();
+	return pathString(nativePath(ponyPackOverrideRoot()) / nativePath(folder + ".json"));
 }
 
 bool ponyPackOverrideExists(std::string const &packPath)
@@ -53,7 +55,7 @@ bool ponyPackOverrideExists(std::string const &packPath)
 
 	std::error_code error;
 
-	return std::filesystem::is_regular_file(path, error);
+	return std::filesystem::is_regular_file(nativePath(path), error);
 }
 
 std::string ponyPackDocumentPath(std::string const &packPath)
@@ -63,7 +65,7 @@ std::string ponyPackDocumentPath(std::string const &packPath)
 		return ponyPackOverridePath(packPath);
 	}
 
-	return (std::filesystem::path(packPath) / "pony.json").string();
+	return pathString(nativePath(packPath) / "pony.json");
 }
 
 bool writePonyPackOverride(std::string const &packPath, std::string const &text, std::string &outError)
@@ -77,9 +79,16 @@ bool writePonyPackOverride(std::string const &packPath, std::string const &text,
 		return false;
 	}
 
-	std::filesystem::path const target(path);
+	std::filesystem::path const target = nativePath(path);
 	std::error_code error;
 	std::filesystem::create_directories(target.parent_path(), error);
+
+	if (error)
+	{
+		outError = "cannot create " + pathString(target.parent_path());
+
+		return false;
+	}
 
 	std::filesystem::path temporary = target;
 	temporary += ".tmp";
@@ -89,19 +98,27 @@ bool writePonyPackOverride(std::string const &packPath, std::string const &text,
 
 		if (not stream)
 		{
-			outError = "cannot write " + temporary.string();
+			outError = "cannot write " + pathString(temporary);
 
 			return false;
 		}
 
 		stream << text;
+		stream.close();
+
+		if (not stream)
+		{
+			outError = "cannot write " + pathString(temporary);
+
+			return false;
+		}
 	}
 
 	std::filesystem::rename(temporary, target, error);
 
 	if (error)
 	{
-		outError = "cannot replace " + target.string();
+		outError = "cannot replace " + pathString(target);
 
 		return false;
 	}
@@ -121,7 +138,7 @@ bool removePonyPackOverride(std::string const &packPath, std::string &outError)
 	}
 
 	std::error_code error;
-	std::filesystem::remove(path, error);
+	std::filesystem::remove(nativePath(path), error);
 
 	if (error)
 	{

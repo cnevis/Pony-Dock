@@ -1,99 +1,76 @@
 #pragma once
 
 #include <Engine/Components/PDAnimation.h>
+#include <Engine/Components/PDBehavior.h>
+#include <Engine/Components/PDInteraction.h>
 #include <Engine/Components/PDLabel.h>
 #include <Engine/Components/PDPack.h>
 #include <Engine/Components/PDPosition.h>
-#include <Engine/Components/PDScript.h>
 #include <Engine/Components/PDSprite.h>
 #include <Engine/PDAnimationCache.h>
 #include <Engine/PDDiagnostics.h>
-#include <Engine/PDLua.h>
 #include <Engine/PDSpriteRenderer.h>
 #include <Engine/PDTextCache.h>
 #include <Engine/PDTextureCache.h>
 #include <Library/PDPonyPackData.h>
+#include <Library/PDSettingsStore.h>
+#include <Math/PDRect.h>
 
 #include <d3d11.h>
 
 #include <entt/entt.hpp>
 
+#include <random>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 class PDScene
 {
 public:
-	~PDScene();
-
-	void initialize(
-		ID3D11Device *device,
-		PDDiagnostics &diagnostics,
-		PDSettingsStore &settings,
-		std::string const &scriptsRoot);
-
-	void spawnEntity(std::string const &packPath, float x, float y);
+	void initialize(ID3D11Device* device, PDDiagnostics* diagnostics, PDSettingsStore* settings);
+	void spawnEntity(std::string const& packPath, float x, float y);
 	void clear();
-	void reloadScripts();
-	void reloadPack(std::string const &packPath);
-
-	std::vector<std::string> loadedScripts() const
-	{
-		return m_lua.loadedScripts();
-	}
-
-	bool loadScript(std::string const &scriptPath)
-	{
-		return m_lua.loadScript(scriptPath);
-	}
-
-	void unloadScript(std::string const &scriptPath)
-	{
-		m_lua.unloadScript(scriptPath);
-	}
-
-	bool pressSettingsButton(std::string const &moduleKey, std::string const &settingId)
-	{
-		return m_lua.pressButton(moduleKey, settingId);
-	}
+	void reshuffle();
+	void reloadPack(std::string const& packPath);
 
 	void updateMouse(int x, int y, bool pressed, bool released);
 	bool wantsMouse() const;
 
-	void tick(
-		float deltaSeconds,
-		int boundsWidth,
-		int boundsHeight,
-		std::vector<PDRect> const &monitors);
-	void draw(PDSpriteRenderer &renderer) const;
+	void tick(float deltaSeconds, int boundsWidth, int boundsHeight, std::vector<PDRect> const& monitors);
+	void draw(PDSpriteRenderer& renderer) const;
 
 private:
-	static constexpr int MaxScriptErrors = 3;
+	PDPonyPackData const* pack(std::string const& packPath);
+	PDSettings const& settings(entt::entity entity) const;
+	std::size_t pickBehavior(entt::entity entity);
+	std::size_t pickHeldBehavior(entt::entity entity);
+	void enterBehavior(entt::entity entity, std::size_t index, int depth);
+	void advanceBehavior(entt::entity entity);
+	void updateBehavior(entt::entity entity, float deltaSeconds);
+	void updateInteractions(float deltaSeconds);
+	bool startInteraction(entt::entity entity, PDPonyInteractionData const& interaction);
+	void placeEntity(entt::entity entity);
+	void moveEntity(entt::entity entity, float deltaSeconds);
+	void constrain(entt::entity entity, float* vx, float* vy);
+	int monitorAt(float x, float y) const;
 
-	struct Invite
-	{
-		std::uint32_t from = 0;
-		std::string behavior;
-	};
-
-	PDPonyPackData const *pack(std::string const &packPath);
 	void advanceAnimations(float deltaSeconds);
-	void writeSpriteFromAnimation(PDAnimation const &animation, PDSprite &sprite) const;
-
-	bool playAnimation(entt::entity entity, std::string const &name, bool loop, bool restart);
+	void writeSpriteFromAnimation(PDAnimation const& animation, PDSprite* sprite) const;
+	bool playAnimation(entt::entity entity, std::string const& name, bool loop, bool restart);
 	void setFacing(entt::entity entity, bool facingRight);
-	std::vector<PDNeighbor> neighbors(std::uint32_t entityId, float radius) const;
-	bool invite(std::uint32_t fromId, std::uint32_t toId, std::string const &behavior);
-	entt::entity resolve(std::uint32_t entityId) const;
 
-	PDDiagnostics *m_diagnostics = nullptr;
+	PDDiagnostics* m_diagnostics = nullptr;
+	PDSettingsStore* m_settings = nullptr;
+	PDSettingsSnapshot m_snapshot;
 	PDTextureCache m_textures;
 	PDTextCache m_labels;
 	PDAnimationCache m_animations;
 	std::unordered_map<std::string, PDPonyPackData> m_packs;
-	PDLua m_lua;
 	entt::registry m_registry;
-	std::unordered_map<std::uint32_t, Invite> m_invites;
+	std::vector<PDRect> m_monitors;
+	std::mt19937 m_rng{std::random_device{}()};
+	std::uniform_real_distribution<float> m_random{0.0f, 1.0f};
 
 	entt::entity m_hovered = entt::null;
 	entt::entity m_dragged = entt::null;

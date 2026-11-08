@@ -49,13 +49,14 @@ bool PDSpriteRenderer::initialize(ID3D11Device *device)
 		&vertexBlob,
 		&errorBlob);
 
-	if (vertexResult != S_OK)
+	if (errorBlob != nullptr)
 	{
-		if (errorBlob != nullptr)
-		{
-			errorBlob->Release();
-		}
+		errorBlob->Release();
+		errorBlob = nullptr;
+	}
 
+	if (FAILED(vertexResult))
+	{
 		return false;
 	}
 
@@ -72,14 +73,14 @@ bool PDSpriteRenderer::initialize(ID3D11Device *device)
 		&pixelBlob,
 		&errorBlob);
 
-	if (pixelResult != S_OK)
+	if (errorBlob != nullptr)
+	{
+		errorBlob->Release();
+	}
+
+	if (FAILED(pixelResult))
 	{
 		vertexBlob->Release();
-
-		if (errorBlob != nullptr)
-		{
-			errorBlob->Release();
-		}
 
 		return false;
 	}
@@ -122,7 +123,21 @@ bool PDSpriteRenderer::initialize(ID3D11Device *device)
 	blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
 	device->CreateBlendState(&blendDesc, &m_blendState);
 
-	return m_vertexShader != nullptr and m_pixelShader != nullptr and m_inputLayout != nullptr and m_vertexBuffer != nullptr and m_sampler != nullptr and m_blendState != nullptr;
+	if (m_vertexShader == nullptr or m_pixelShader == nullptr or m_inputLayout == nullptr)
+	{
+		shutdown();
+
+		return false;
+	}
+
+	if (m_vertexBuffer == nullptr or m_sampler == nullptr or m_blendState == nullptr)
+	{
+		shutdown();
+
+		return false;
+	}
+
+	return true;
 }
 
 void PDSpriteRenderer::shutdown()

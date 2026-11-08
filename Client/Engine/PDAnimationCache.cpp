@@ -1,5 +1,6 @@
 #include <Engine/PDAnimationCache.h>
 
+#include <Core/PDPaths.h>
 #include <Engine/PDAnimationLoader.h>
 #include <Engine/PDDiagnostics.h>
 #include <Engine/PDTexture.h>
@@ -14,7 +15,7 @@ void PDAnimationCache::initialize(PDTextureCache &textures, PDDiagnostics &diagn
 
 PDAnimationClip const *PDAnimationCache::clip(std::string const &animPath)
 {
-	std::string const key = std::filesystem::path(animPath).lexically_normal().string();
+	std::string const key = pathString(nativePath(animPath).lexically_normal());
 
 	auto const existing = m_clips.find(key);
 
