@@ -9,6 +9,7 @@
 #include <Library/PDSettingsStore.h>
 #include <Math/PDRect.h>
 #include <UI/PDImGui.h>
+#include <UI/PDTrayIcon.h>
 #include <UI/Windows/PDMainWindow.h>
 
 #include <windows.h>
@@ -45,6 +46,7 @@ public:
 
 private:
 	void runOverlay(HINSTANCE instance);
+	void handleMessage(UINT message, LPARAM lParam);
 	std::vector<PDRect> walkableRects() const;
 	void applyPendingScene();
 	void applyPendingPacks();
@@ -52,6 +54,7 @@ private:
 	PDDiagnostics m_diagnostics;
 	PDSettingsStore m_settings;
 	PDImGui m_host;
+	PDTrayIcon m_tray;
 	PDMainWindow m_mainWindow;
 
 	PDOverlayWindow m_overlay;

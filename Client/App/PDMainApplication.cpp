@@ -19,11 +19,27 @@ int PDMainApplication::run(HINSTANCE instance)
 		m_mainWindow.draw();
 	});
 
+	m_host.setMessageCallback([this](UINT message, LPARAM lParam)
+	{
+		handleMessage(message, lParam);
+	});
+
 	HICON const icon = LoadIcon(instance, MAKEINTRESOURCE(IDI_APPICON));
 
 	if (not m_host.initialize(instance, "Pony Dock", 780, 600, icon, 610, 320))
 	{
 		return 1;
+	}
+
+	HICON const trayIcon = static_cast<HICON>(LoadImage(instance, MAKEINTRESOURCE(IDI_APPICON), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_SHARED));
+
+	if (m_tray.create(m_host.handle(), trayIcon))
+	{
+		m_host.setHideOnClose(true);
+	}
+	else
+	{
+		m_diagnostics.write("Tray icon failed to initialize");
 	}
 
 	m_settings.load();
@@ -37,6 +53,13 @@ int PDMainApplication::run(HINSTANCE instance)
 
 	while (m_host.pumpMessages())
 	{
+		if (not m_host.visible())
+		{
+			WaitMessage();
+
+			continue;
+		}
+
 		m_host.renderFrame();
 	}
 
@@ -243,4 +266,50 @@ void PDMainApplication::reloadPack(std::string const& packPath)
 void PDMainApplication::requestExit()
 {
 	m_host.close();
+}
+
+void PDMainApplication::handleMessage(UINT message, LPARAM lParam)
+{
+	if (message == WM_DESTROY)
+	{
+		m_tray.destroy();
+
+		return;
+	}
+
+	switch (m_tray.handleMessage(message, lParam, isRunning(), not m_mainWindow.scene().empty()))
+	{
+		case PDTrayCommand::Show:
+		{
+			m_host.show();
+
+			break;
+		}
+
+		case PDTrayCommand::Toggle:
+		{
+			if (isRunning())
+			{
+				stopScene();
+			}
+			else
+			{
+				startScene(m_mainWindow.scene());
+			}
+
+			break;
+		}
+
+		case PDTrayCommand::Quit:
+		{
+			requestExit();
+
+			break;
+		}
+
+		case PDTrayCommand::None:
+		{
+			break;
+		}
+	}
 }

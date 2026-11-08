@@ -38,6 +38,11 @@ public:
 
 	void draw();
 
+	std::vector<PDSceneEntry> const& scene() const
+	{
+		return m_scene;
+	}
+
 private:
 	static constexpr float NavWidth = 224.0f;
 	static constexpr float SidebarPad = 12.0f;

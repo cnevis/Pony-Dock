@@ -18,6 +18,11 @@ void PDImGui::setFrameCallback(std::function<void()> callback)
 	m_frameCallback = std::move(callback);
 }
 
+void PDImGui::setMessageCallback(std::function<void(UINT message, LPARAM lParam)> callback)
+{
+	m_messageCallback = std::move(callback);
+}
+
 bool PDImGui::initialize(
 	HINSTANCE instance,
 	char const* title,
@@ -185,8 +190,16 @@ bool PDImGui::pumpMessages()
 	return true;
 }
 
+void PDImGui::show()
+{
+	ShowWindow(m_window, IsIconic(m_window) != 0 ? SW_RESTORE : SW_SHOW);
+	ShowOwnedPopups(m_window, TRUE);
+	SetForegroundWindow(m_window);
+}
+
 void PDImGui::close()
 {
+	m_hideOnClose = false;
 	PostMessage(m_window, WM_CLOSE, 0, 0);
 }
 
@@ -329,6 +342,11 @@ LRESULT CALLBACK PDImGui::staticWndProc(HWND window, UINT message, WPARAM wParam
 
 LRESULT PDImGui::handleMessage(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
+	if (m_messageCallback)
+	{
+		m_messageCallback(message, lParam);
+	}
+
 	if (ImGui_ImplWin32_WndProcHandler(window, message, wParam, lParam) != 0)
 	{
 		return true;
@@ -361,6 +379,19 @@ LRESULT PDImGui::handleMessage(HWND window, UINT message, WPARAM wParam, LPARAM 
 				createRenderTarget();
 				renderFrame();
 			}
+
+			return 0;
+		}
+
+		case WM_CLOSE:
+		{
+			if (not m_hideOnClose)
+			{
+				break;
+			}
+
+			ShowOwnedPopups(window, FALSE);
+			ShowWindow(window, SW_HIDE);
 
 			return 0;
 		}

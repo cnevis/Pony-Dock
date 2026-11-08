@@ -9,14 +9,26 @@ class PDImGui
 {
 public:
 	void setFrameCallback(std::function<void()> callback);
+	void setMessageCallback(std::function<void(UINT message, LPARAM lParam)> callback);
 
 	bool initialize(HINSTANCE instance, char const* title, int width, int height, HICON icon = nullptr, int minWidth = 0, int minHeight = 0);
 	void shutdown();
 
 	bool pumpMessages();
+	void show();
 	void close();
 
 	void renderFrame();
+
+	void setHideOnClose(bool hide)
+	{
+		m_hideOnClose = hide;
+	}
+
+	bool visible() const
+	{
+		return IsWindowVisible(m_window) != 0 and IsIconic(m_window) == 0;
+	}
 
 	HWND handle() const
 	{
@@ -45,6 +57,7 @@ private:
 	HINSTANCE m_instance = nullptr;
 	bool m_ready = false;
 	bool m_rendering = false;
+	bool m_hideOnClose = false;
 	int m_minClientWidth = 0;
 	int m_minClientHeight = 0;
 
@@ -54,4 +67,5 @@ private:
 	ID3D11RenderTargetView* m_renderTargetView = nullptr;
 
 	std::function<void()> m_frameCallback;
+	std::function<void(UINT message, LPARAM lParam)> m_messageCallback;
 };
