@@ -69,8 +69,8 @@
       "animation": "maud-lying",
       "chance": 0.06,
       "durationMs": {
-        "max": 40000,
-        "min": 20000
+        "max": 600000,
+        "min": 30000
       },
       "endSpeech": null,
       "follow": null,
