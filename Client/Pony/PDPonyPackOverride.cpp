@@ -1,4 +1,4 @@
-#include <Library/PDPonyPackOverride.h>
+#include <Pony/PDPonyPackOverride.h>
 
 #include <Core/PDPaths.h>
 

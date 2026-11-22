@@ -2,7 +2,7 @@
 
 #include <Core/PDPaths.h>
 #include <Core/PDString.h>
-#include <Library/PDPonyPackLoader.h>
+#include <Pony/PDPonyPackLoader.h>
 
 #include <algorithm>
 #include <cassert>

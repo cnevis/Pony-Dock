@@ -1,4 +1,4 @@
-#include <Library/PDPonyCatalog.h>
+#include <Pony/PDPonyCatalog.h>
 
 #include <Core/PDPaths.h>
 

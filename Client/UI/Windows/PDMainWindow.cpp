@@ -77,6 +77,8 @@ PDMainWindow::PDMainWindow(PDMainApplication& app, PDImGui& host, PDDiagnostics&
 
 	for (PDPonyGroup const& group : m_catalog.groups())
 	{
+		m_searchNames.push_back(toLower(group.displayName));
+
 		for (PDPonyPack const& variant : group.variants)
 		{
 			PDSettingTarget target;
@@ -89,6 +91,7 @@ PDMainWindow::PDMainWindow(PDMainApplication& app, PDImGui& host, PDDiagnostics&
 				target.label += "  (" + variant.id + ")";
 			}
 
+			target.searchLabel = toLower(target.label);
 			m_targets.push_back(std::move(target));
 		}
 	}
@@ -373,64 +376,81 @@ void PDMainWindow::drawBrowserView()
 
 	std::string const query = toLower(m_search);
 	std::vector<PDPonyGroup> const& groups = m_catalog.groups();
-
-	float const available = ImGui::GetContentRegionAvail().x;
-	int const columns = std::max(1, (int)((available + CardSpacing) / (CardWidth + CardSpacing)));
-
-	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(CardSpacing, CardSpacing));
-
-	int shown = 0;
+	std::vector<std::size_t> visible;
 
 	for (std::size_t i = 0; i < groups.size(); i += 1)
 	{
-		PDPonyGroup const& group = groups[i];
-
-		if (not query.empty() and toLower(group.displayName).find(query) == std::string::npos)
+		if (query.empty() or m_searchNames[i].find(query) != std::string::npos)
 		{
-			continue;
+			visible.push_back(i);
 		}
+	}
 
-		if (shown % columns != 0)
+	float const available = ImGui::GetContentRegionAvail().x;
+	int const columns = std::max(1, (int)((available + CardSpacing) / (CardWidth + CardSpacing)));
+	int const rows = ((int)visible.size() + columns - 1) / columns;
+
+	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(CardSpacing, CardSpacing));
+
+	ImGuiListClipper clipper;
+	clipper.Begin(rows, cardHeight() + CardSpacing);
+
+	while (clipper.Step())
+	{
+		for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; row += 1)
 		{
-			ImGui::SameLine();
+			for (int column = 0; column < columns; column += 1)
+			{
+				std::size_t const slot = (std::size_t)(row * columns + column);
+
+				if (slot >= visible.size())
+				{
+					break;
+				}
+
+				if (column != 0)
+				{
+					ImGui::SameLine();
+				}
+
+				std::size_t const i = visible[slot];
+				PDPonyGroup const& group = groups[i];
+				std::string sub;
+
+				if (group.variants.size() > 1)
+				{
+					char buffer[32];
+					std::snprintf(buffer, sizeof(buffer), "%zu variants", group.variants.size());
+					sub = buffer;
+				}
+
+				ImGui::PushID((int)i);
+
+				PDCardInput const input = drawPonyCard(
+					group.displayName,
+					sub,
+					thumbnail(group.variants.front().previewPath),
+					m_selectedGroup == (int)i);
+
+				if (input.clicked)
+				{
+					m_selectedGroup = (int)i;
+				}
+
+				if (input.doubleClicked)
+				{
+					openGroup(i, VariantStage);
+				}
+
+				if (input.rightClicked)
+				{
+					m_selectedGroup = (int)i;
+					openGroup(i, VariantEdit);
+				}
+
+				ImGui::PopID();
+			}
 		}
-
-		shown += 1;
-
-		std::string sub;
-
-		if (group.variants.size() > 1)
-		{
-			char buffer[32];
-			std::snprintf(buffer, sizeof(buffer), "%zu variants", group.variants.size());
-			sub = buffer;
-		}
-
-		ImGui::PushID((int)i);
-
-		PDCardInput const input = drawPonyCard(
-			group.displayName,
-			sub,
-			thumbnail(group.variants.front().previewPath),
-			m_selectedGroup == (int)i);
-
-		if (input.clicked)
-		{
-			m_selectedGroup = (int)i;
-		}
-
-		if (input.doubleClicked)
-		{
-			openGroup(i, VariantStage);
-		}
-
-		if (input.rightClicked)
-		{
-			m_selectedGroup = (int)i;
-			openGroup(i, VariantEdit);
-		}
-
-		ImGui::PopID();
 	}
 
 	ImGui::PopStyleVar();
@@ -480,6 +500,14 @@ void PDMainWindow::openBehaviorEditor(std::string const& packPath, std::string c
 	m_activeView = View::Behaviors;
 }
 
+float PDMainWindow::cardHeight()
+{
+	float const nameHeight = ImGui::GetTextLineHeight();
+	float const subHeight = nameHeight * 0.85f;
+
+	return CardPad + ThumbHeight + 7.0f + nameHeight + subHeight + CardPad;
+}
+
 PDCardInput PDMainWindow::drawPonyCard(
 	std::string const& name,
 	std::string const& sub,
@@ -487,11 +515,9 @@ PDCardInput PDMainWindow::drawPonyCard(
 	bool selected)
 {
 	float const nameHeight = ImGui::GetTextLineHeight();
-	float const subHeight = nameHeight * 0.85f;
-	float const cardHeight = CardPad + ThumbHeight + 7.0f + nameHeight + subHeight + CardPad;
 
 	ImVec2 const position = ImGui::GetCursorScreenPos();
-	ImVec2 const size(CardWidth, cardHeight);
+	ImVec2 const size(CardWidth, cardHeight());
 	ImVec2 const rectMax(position.x + size.x, position.y + size.y);
 
 	PDCardInput input;
@@ -974,7 +1000,7 @@ void PDMainWindow::drawTargetModal()
 
 	for (std::size_t i = 0; i < m_targets.size(); i += 1)
 	{
-		if (filter.empty() or toLower(m_targets[i].label).find(filter) != std::string::npos)
+		if (filter.empty() or m_targets[i].searchLabel.find(filter) != std::string::npos)
 		{
 			visible.push_back((int)i);
 		}
@@ -991,48 +1017,64 @@ void PDMainWindow::drawTargetModal()
 	std::string chosenId;
 	std::string chosenLabel;
 
-	for (std::size_t i = 0; i < visible.size(); i += 1)
+	ImGuiListClipper clipper;
+	clipper.Begin(((int)visible.size() + columns - 1) / columns, cardHeight() + CardSpacing);
+
+	while (clipper.Step())
 	{
-		if (i % (std::size_t)columns != 0)
+		for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; row += 1)
 		{
-			ImGui::SameLine();
-		}
-		else
-		{
-			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + indent);
-		}
-
-		int const index = visible[i];
-		ImGui::PushID(index);
-
-		PDCardInput input;
-
-		if (index < 0)
-		{
-			input = drawPonyCard("Global defaults", "every pack", nullptr, m_settingsTarget.empty());
-		}
-		else
-		{
-			PDSettingTarget const& target = m_targets[(std::size_t)index];
-			bool const hasOverride = std::find(overridden.begin(), overridden.end(), target.id) != overridden.end();
-
-			input = drawPonyCard(
-				target.label,
-				hasOverride ? "overridden" : std::string(),
-				thumbnail(target.previewPath),
-				m_settingsTarget == target.id);
-		}
-
-		ImGui::PopID();
-
-		if (input.clicked)
-		{
-			chosen = true;
-
-			if (index >= 0)
+			for (int column = 0; column < columns; column += 1)
 			{
-				chosenId = m_targets[(std::size_t)index].id;
-				chosenLabel = m_targets[(std::size_t)index].label;
+				std::size_t const slot = (std::size_t)(row * columns + column);
+
+				if (slot >= visible.size())
+				{
+					break;
+				}
+
+				if (column != 0)
+				{
+					ImGui::SameLine();
+				}
+				else
+				{
+					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + indent);
+				}
+
+				int const index = visible[slot];
+				ImGui::PushID(index);
+
+				PDCardInput input;
+
+				if (index < 0)
+				{
+					input = drawPonyCard("Global defaults", "every pack", nullptr, m_settingsTarget.empty());
+				}
+				else
+				{
+					PDSettingTarget const& target = m_targets[(std::size_t)index];
+					bool const hasOverride = std::find(overridden.begin(), overridden.end(), target.id) != overridden.end();
+
+					input = drawPonyCard(
+						target.label,
+						hasOverride ? "overridden" : std::string(),
+						thumbnail(target.previewPath),
+						m_settingsTarget == target.id);
+				}
+
+				ImGui::PopID();
+
+				if (input.clicked)
+				{
+					chosen = true;
+
+					if (index >= 0)
+					{
+						chosenId = m_targets[(std::size_t)index].id;
+						chosenLabel = m_targets[(std::size_t)index].label;
+					}
+				}
 			}
 		}
 	}

@@ -230,7 +230,7 @@ void PDImGui::endFrame()
 		ImGui::RenderPlatformWindowsDefault();
 	}
 
-	m_swapChain->Present(1, 0);
+	m_occluded = m_swapChain->Present(1, 0) == DXGI_STATUS_OCCLUDED;
 }
 
 bool PDImGui::createDevice()
@@ -323,6 +323,14 @@ void PDImGui::renderFrame()
 		return;
 	}
 
+	if (m_occluded and m_swapChain->Present(0, DXGI_PRESENT_TEST) == DXGI_STATUS_OCCLUDED)
+	{
+		Sleep(16);
+
+		return;
+	}
+
+	m_occluded = false;
 	m_rendering = true;
 	beginFrame();
 	m_frameCallback();
@@ -394,6 +402,16 @@ LRESULT PDImGui::handleMessage(HWND window, UINT message, WPARAM wParam, LPARAM 
 			ShowWindow(window, SW_HIDE);
 
 			return 0;
+		}
+
+		case WM_SYSCOMMAND:
+		{
+			if ((wParam & 0xfff0) == SC_KEYMENU)
+			{
+				return 0;
+			}
+
+			break;
 		}
 
 		case WM_DESTROY:

@@ -9,12 +9,12 @@
 #include <Engine/Components/PDSprite.h>
 #include <Engine/PDAnimationCache.h>
 #include <Engine/PDDiagnostics.h>
+#include <Engine/PDSettingsStore.h>
 #include <Engine/PDSpriteRenderer.h>
 #include <Engine/PDTextCache.h>
 #include <Engine/PDTextureCache.h>
-#include <Library/PDPonyPackData.h>
-#include <Library/PDSettingsStore.h>
 #include <Math/PDRect.h>
+#include <Pony/PDPonyPackData.h>
 
 #include <d3d11.h>
 
@@ -48,6 +48,11 @@ public:
 	void reshuffle();
 	void reloadPack(std::string const& packPath);
 	void force(PDForce const& request);
+
+	bool empty() const
+	{
+		return m_registry.view<PDPosition const>().empty();
+	}
 
 	void updateMouse(int x, int y, bool pressed, bool released);
 	bool wantsMouse() const;

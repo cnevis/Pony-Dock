@@ -1,9 +1,8 @@
 #include <Engine/PDSpriteRenderer.h>
 
-#include <Math/PDVertex2D.h>
-
 #include <d3dcompiler.h>
 
+#include <cstdint>
 #include <cstring>
 #include <string_view>
 
@@ -100,10 +99,35 @@ bool PDSpriteRenderer::initialize(ID3D11Device* device)
 
 	D3D11_BUFFER_DESC vertexBufferDesc = {};
 	vertexBufferDesc.Usage = D3D11_USAGE_DYNAMIC;
-	vertexBufferDesc.ByteWidth = sizeof(PDVertex2D) * 4;
+	vertexBufferDesc.ByteWidth = (UINT)(sizeof(PDVertex2D) * 4 * MaxQuads);
 	vertexBufferDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
 	vertexBufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
 	device->CreateBuffer(&vertexBufferDesc, nullptr, &m_vertexBuffer);
+
+	std::vector<std::uint16_t> indices;
+	indices.reserve(MaxQuads * 6);
+
+	for (std::size_t i = 0; i < MaxQuads; i += 1)
+	{
+		std::uint16_t const first = (std::uint16_t)(i * 4);
+		indices.push_back(first);
+		indices.push_back((std::uint16_t)(first + 1));
+		indices.push_back((std::uint16_t)(first + 2));
+		indices.push_back((std::uint16_t)(first + 2));
+		indices.push_back((std::uint16_t)(first + 1));
+		indices.push_back((std::uint16_t)(first + 3));
+	}
+
+	D3D11_BUFFER_DESC indexBufferDesc = {};
+	indexBufferDesc.Usage = D3D11_USAGE_IMMUTABLE;
+	indexBufferDesc.ByteWidth = (UINT)(sizeof(std::uint16_t) * indices.size());
+	indexBufferDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+
+	D3D11_SUBRESOURCE_DATA indexData = {};
+	indexData.pSysMem = indices.data();
+	device->CreateBuffer(&indexBufferDesc, &indexData, &m_indexBuffer);
+
+	m_vertices.reserve(MaxQuads * 4);
 
 	D3D11_SAMPLER_DESC samplerDesc = {};
 	samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
@@ -130,7 +154,7 @@ bool PDSpriteRenderer::initialize(ID3D11Device* device)
 		return false;
 	}
 
-	if (m_vertexBuffer == nullptr or m_sampler == nullptr or m_blendState == nullptr)
+	if (m_vertexBuffer == nullptr or m_indexBuffer == nullptr or m_sampler == nullptr or m_blendState == nullptr)
 	{
 		shutdown();
 
@@ -152,6 +176,12 @@ void PDSpriteRenderer::shutdown()
 	{
 		m_sampler->Release();
 		m_sampler = nullptr;
+	}
+
+	if (m_indexBuffer != nullptr)
+	{
+		m_indexBuffer->Release();
+		m_indexBuffer = nullptr;
 	}
 
 	if (m_vertexBuffer != nullptr)
@@ -184,10 +214,13 @@ void PDSpriteRenderer::begin(ID3D11DeviceContext* context, int screenWidth, int 
 	m_context = context;
 	m_screenWidth = screenWidth;
 	m_screenHeight = screenHeight;
+	m_vertices.clear();
+	m_batches.clear();
 
 	constexpr float blendFactor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 	context->OMSetBlendState(m_blendState, blendFactor, 0xffffffff);
-	context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+	context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	context->IASetIndexBuffer(m_indexBuffer, DXGI_FORMAT_R16_UINT, 0);
 	context->IASetInputLayout(m_inputLayout);
 	context->VSSetShader(m_vertexShader, nullptr, 0);
 	context->PSSetShader(m_pixelShader, nullptr, 0);
@@ -219,24 +252,53 @@ void PDSpriteRenderer::draw(
 	float const top = 1.0f - y / (float)m_screenHeight * 2.0f;
 	float const bottom = 1.0f - (y + height) / (float)m_screenHeight * 2.0f;
 
-	PDVertex2D const vertices[4] =
+	if (m_vertices.size() >= MaxQuads * 4)
 	{
-		{left, top, u0, v0},
-		{right, top, u1, v0},
-		{left, bottom, u0, v1},
-		{right, bottom, u1, v1},
-	};
+		flush();
+	}
 
-	D3D11_MAPPED_SUBRESOURCE mapped;
+	if (m_batches.empty() or m_batches.back().texture != texture)
+	{
+		Batch batch;
+		batch.texture = texture;
+		batch.firstQuad = (UINT)(m_vertices.size() / 4);
+		m_batches.push_back(batch);
+	}
 
-	if (m_context->Map(m_vertexBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped) != S_OK)
+	m_batches.back().quadCount += 1;
+	m_vertices.push_back({left, top, u0, v0});
+	m_vertices.push_back({right, top, u1, v0});
+	m_vertices.push_back({left, bottom, u0, v1});
+	m_vertices.push_back({right, bottom, u1, v1});
+}
+
+void PDSpriteRenderer::end()
+{
+	flush();
+	m_context = nullptr;
+}
+
+void PDSpriteRenderer::flush()
+{
+	if (m_context == nullptr or m_vertices.empty())
 	{
 		return;
 	}
 
-	memcpy(mapped.pData, vertices, sizeof(vertices));
-	m_context->Unmap(m_vertexBuffer, 0);
+	D3D11_MAPPED_SUBRESOURCE mapped;
 
-	m_context->PSSetShaderResources(0, 1, &texture);
-	m_context->Draw(4, 0);
+	if (m_context->Map(m_vertexBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped) == S_OK)
+	{
+		memcpy(mapped.pData, m_vertices.data(), m_vertices.size() * sizeof(PDVertex2D));
+		m_context->Unmap(m_vertexBuffer, 0);
+
+		for (Batch const& batch : m_batches)
+		{
+			m_context->PSSetShaderResources(0, 1, &batch.texture);
+			m_context->DrawIndexed(batch.quadCount * 6, batch.firstQuad * 6, 0);
+		}
+	}
+
+	m_vertices.clear();
+	m_batches.clear();
 }

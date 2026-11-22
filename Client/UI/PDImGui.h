@@ -58,6 +58,7 @@ private:
 	bool m_ready = false;
 	bool m_rendering = false;
 	bool m_hideOnClose = false;
+	bool m_occluded = false;
 	int m_minClientWidth = 0;
 	int m_minClientHeight = 0;
 

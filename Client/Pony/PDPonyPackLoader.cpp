@@ -1,7 +1,7 @@
-#include <Library/PDPonyPackLoader.h>
+#include <Pony/PDPonyPackLoader.h>
 
 #include <Core/PDPaths.h>
-#include <Library/PDPonyPackOverride.h>
+#include <Pony/PDPonyPackOverride.h>
 
 #include <nlohmann/json.hpp>
 

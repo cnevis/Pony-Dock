@@ -1,11 +1,11 @@
 #pragma once
 
 #include <Engine/PDDiagnostics.h>
+#include <Engine/PDMonitor.h>
+#include <Engine/PDSettings.h>
 #include <Engine/PDTexture.h>
-#include <Library/PDMonitor.h>
-#include <Library/PDPonyCatalog.h>
-#include <Library/PDSceneEntry.h>
-#include <Library/PDSettings.h>
+#include <Pony/PDPonyCatalog.h>
+#include <Pony/PDSceneEntry.h>
 #include <UI/Windows/PDBehaviorEditor.h>
 
 #include <imgui.h>
@@ -21,6 +21,7 @@ struct PDSettingTarget
 {
 	std::string id;
 	std::string label;
+	std::string searchLabel;
 	std::string previewPath;
 };
 
@@ -79,6 +80,7 @@ private:
 
 	void drawContent();
 	void drawBrowserView();
+	static float cardHeight();
 	PDCardInput drawPonyCard(
 		std::string const& name,
 		std::string const& sub,
@@ -118,6 +120,7 @@ private:
 	View m_activeView = View::Browser;
 
 	PDPonyCatalog m_catalog;
+	std::vector<std::string> m_searchNames;
 	std::unordered_map<std::string, PDTexture> m_thumbnails;
 	int m_thumbnailBudget = 0;
 

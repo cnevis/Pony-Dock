@@ -1,7 +1,7 @@
 #pragma once
 
-#include <Library/PDSceneEntry.h>
-#include <Library/PDSettings.h>
+#include <Engine/PDSettings.h>
+#include <Pony/PDSceneEntry.h>
 
 #include <atomic>
 #include <cstdint>

@@ -102,10 +102,17 @@ void PDMainApplication::runOverlay(HINSTANCE instance)
 	m_diagnostics.write("Overlay ready at " + std::to_string(m_overlay.width()) + "x" + std::to_string(m_overlay.height()));
 
 	std::chrono::steady_clock::time_point lastTick = std::chrono::steady_clock::now();
+	bool idle = false;
 
 	while (m_overlayRunning)
 	{
 		m_overlay.pumpMessages();
+
+		if (m_overlay.refreshBounds())
+		{
+			m_monitors = enumerateMonitors();
+			m_diagnostics.write("Displays changed, overlay now " + std::to_string(m_overlay.width()) + "x" + std::to_string(m_overlay.height()) + " over " + std::to_string(m_monitors.size()) + " displays");
+		}
 
 		if (m_pendingShuffle.exchange(false))
 		{
@@ -115,6 +122,15 @@ void PDMainApplication::runOverlay(HINSTANCE instance)
 		applyPendingPacks();
 		applyPendingScene();
 		applyPendingForces();
+
+		if (idle and m_scene.empty())
+		{
+			m_overlay.pollMouse();
+			MsgWaitForMultipleObjects(0, nullptr, FALSE, 50, QS_ALLINPUT);
+			lastTick = std::chrono::steady_clock::now();
+
+			continue;
+		}
 
 		std::chrono::steady_clock::time_point const now = std::chrono::steady_clock::now();
 		float const elapsedSeconds = std::chrono::duration<float>(now - lastTick).count();
@@ -130,7 +146,10 @@ void PDMainApplication::runOverlay(HINSTANCE instance)
 		m_overlay.beginFrame();
 		m_spriteRenderer.begin(m_overlay.context(), m_overlay.width(), m_overlay.height());
 		m_scene.draw(m_spriteRenderer);
+		m_spriteRenderer.end();
 		m_overlay.endFrame();
+
+		idle = m_scene.empty();
 	}
 
 	m_spriteRenderer.shutdown();
