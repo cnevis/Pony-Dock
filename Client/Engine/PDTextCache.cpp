@@ -7,31 +7,8 @@
 #include <cstdint>
 #include <vector>
 
-static std::vector<std::uint8_t> rasterize(
-	ID3D11Device* device,
-	ID2D1Factory* factory,
-	IDWriteTextLayout* layout,
-	int width,
-	int height)
+static HRESULT drawLabel(ID2D1Factory* factory, ID3D11Texture2D* target, IDWriteTextLayout* layout, int width, int height)
 {
-	D3D11_TEXTURE2D_DESC targetDesc = {};
-	targetDesc.Width = (UINT)width;
-	targetDesc.Height = (UINT)height;
-	targetDesc.MipLevels = 1;
-	targetDesc.ArraySize = 1;
-	targetDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-	targetDesc.SampleDesc.Count = 1;
-	targetDesc.Usage = D3D11_USAGE_DEFAULT;
-	targetDesc.BindFlags = D3D11_BIND_RENDER_TARGET;
-
-	ID3D11Texture2D* target = nullptr;
-	device->CreateTexture2D(&targetDesc, nullptr, &target);
-
-	if (target == nullptr)
-	{
-		return std::vector<std::uint8_t>();
-	}
-
 	IDXGISurface* surface = nullptr;
 	ID2D1RenderTarget* renderTarget = nullptr;
 
@@ -47,9 +24,7 @@ static std::vector<std::uint8_t> rasterize(
 
 	if (renderTarget == nullptr)
 	{
-		target->Release();
-
-		return std::vector<std::uint8_t>();
+		return E_FAIL;
 	}
 
 	ID2D1SolidColorBrush* pill = nullptr;
@@ -63,13 +38,13 @@ static std::vector<std::uint8_t> rasterize(
 
 	if (pill != nullptr and ink != nullptr)
 	{
-		D2D1_RECT_F const bounds = D2D1::RectF(0.0f, 0.0f, (float)width, (float)height);
+		D2D1_RECT_F const rect = D2D1::RectF(0.0f, 0.0f, (float)width, (float)height);
 
-		renderTarget->FillRoundedRectangle(D2D1::RoundedRect(bounds, 7.0f, 7.0f), pill);
+		renderTarget->FillRoundedRectangle(D2D1::RoundedRect(rect, 7.0f, 7.0f), pill);
 		renderTarget->DrawTextLayout(D2D1::Point2F(7.0f, 3.0f), layout, ink);
 	}
 
-	HRESULT const drawn = renderTarget->EndDraw();
+	HRESULT const hr = renderTarget->EndDraw();
 
 	if (ink != nullptr)
 	{
@@ -83,12 +58,19 @@ static std::vector<std::uint8_t> rasterize(
 
 	renderTarget->Release();
 
-	targetDesc.Usage = D3D11_USAGE_STAGING;
-	targetDesc.BindFlags = 0;
-	targetDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+	return hr;
+}
+
+static std::vector<std::uint8_t> readPixels(ID3D11Device* device, ID3D11Texture2D* target, int width, int height)
+{
+	D3D11_TEXTURE2D_DESC stagingDesc = {};
+	target->GetDesc(&stagingDesc);
+	stagingDesc.Usage = D3D11_USAGE_STAGING;
+	stagingDesc.BindFlags = 0;
+	stagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
 
 	ID3D11Texture2D* staging = nullptr;
-	device->CreateTexture2D(&targetDesc, nullptr, &staging);
+	device->CreateTexture2D(&stagingDesc, nullptr, &staging);
 
 	ID3D11DeviceContext* context = nullptr;
 	device->GetImmediateContext(&context);
@@ -96,7 +78,7 @@ static std::vector<std::uint8_t> rasterize(
 	std::vector<std::uint8_t> pixels;
 	D3D11_MAPPED_SUBRESOURCE mapped = {};
 
-	if (SUCCEEDED(drawn) and staging != nullptr and context != nullptr)
+	if (staging != nullptr and context != nullptr)
 	{
 		context->CopyResource(staging, target);
 
@@ -137,6 +119,41 @@ static std::vector<std::uint8_t> rasterize(
 		staging->Release();
 	}
 
+	return pixels;
+}
+
+static std::vector<std::uint8_t> rasterize(
+	ID3D11Device* device,
+	ID2D1Factory* factory,
+	IDWriteTextLayout* layout,
+	int width,
+	int height)
+{
+	D3D11_TEXTURE2D_DESC targetDesc = {};
+	targetDesc.Width = (UINT)width;
+	targetDesc.Height = (UINT)height;
+	targetDesc.MipLevels = 1;
+	targetDesc.ArraySize = 1;
+	targetDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+	targetDesc.SampleDesc.Count = 1;
+	targetDesc.Usage = D3D11_USAGE_DEFAULT;
+	targetDesc.BindFlags = D3D11_BIND_RENDER_TARGET;
+
+	ID3D11Texture2D* target = nullptr;
+	device->CreateTexture2D(&targetDesc, nullptr, &target);
+
+	if (target == nullptr)
+	{
+		return std::vector<std::uint8_t>();
+	}
+
+	std::vector<std::uint8_t> pixels;
+
+	if (SUCCEEDED(drawLabel(factory, target, layout, width, height)))
+	{
+		pixels = readPixels(device, target, width, height);
+	}
+
 	target->Release();
 
 	return pixels;
@@ -169,12 +186,12 @@ void PDTextCache::initialize(ID3D11Device* device)
 		return;
 	}
 
-	HRESULT const created = DWriteCreateFactory(
+	HRESULT const hr = DWriteCreateFactory(
 		DWRITE_FACTORY_TYPE_SHARED,
 		__uuidof(IDWriteFactory),
 		reinterpret_cast<IUnknown**>(&m_writeFactory));
 
-	if (FAILED(created))
+	if (FAILED(hr))
 	{
 		return;
 	}
@@ -207,7 +224,7 @@ PDTexture const* PDTextCache::texture(std::string const& text)
 	std::wstring const wide = toWide(text);
 	IDWriteTextLayout* layout = nullptr;
 
-	HRESULT const created = m_writeFactory->CreateTextLayout(
+	HRESULT const hr = m_writeFactory->CreateTextLayout(
 		wide.c_str(),
 		(UINT32)wide.size(),
 		m_textFormat,
@@ -215,7 +232,7 @@ PDTexture const* PDTextCache::texture(std::string const& text)
 		60.0f,
 		&layout);
 
-	if (FAILED(created))
+	if (FAILED(hr))
 	{
 		return nullptr;
 	}

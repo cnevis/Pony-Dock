@@ -64,8 +64,9 @@ private:
 	PDPonyPackData const* pack(std::string const& packPath);
 	PDSettings const& settings(entt::entity entity) const;
 	std::size_t pickBehavior(entt::entity entity);
-	std::size_t pickHeldBehavior(entt::entity entity);
-	void enterBehavior(entt::entity entity, std::size_t index, int depth);
+	std::size_t pickDragBehavior(entt::entity entity);
+	void enterBehavior(entt::entity entity, std::size_t idx, int depth);
+	void pickVelocity(PDPonyBehaviorData const& behavior, PDBehavior* state);
 	void advanceBehavior(entt::entity entity);
 	void updateBehavior(entt::entity entity, float deltaSeconds);
 	void updateInteractions(float deltaSeconds);
@@ -84,7 +85,7 @@ private:
 	void placeEntity(entt::entity entity);
 	void moveEntity(entt::entity entity, float deltaSeconds);
 	void constrain(entt::entity entity, float* vx, float* vy);
-	int monitorAt(float x, float y) const;
+	int monitor(float x, float y) const;
 
 	void advanceAnimations(float deltaSeconds);
 	void writeSpriteFromAnimation(PDAnimation const& animation, PDSprite* sprite) const;

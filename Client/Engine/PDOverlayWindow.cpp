@@ -68,12 +68,12 @@ bool PDOverlayWindow::initialize(HINSTANCE instance)
 
 bool PDOverlayWindow::refreshBounds()
 {
-	if (not m_displayChanged or m_window == nullptr or m_swapChain == nullptr)
+	if (not m_displayChange or m_window == nullptr or m_swapChain == nullptr)
 	{
 		return false;
 	}
 
-	m_displayChanged = false;
+	m_displayChange = false;
 
 	int const oldX = m_originX;
 	int const oldY = m_originY;
@@ -263,7 +263,7 @@ LRESULT PDOverlayWindow::handleMessage(HWND window, UINT message, WPARAM wParam,
 		case WM_LBUTTONDOWN:
 		{
 			m_mouseDown = true;
-			m_mousePressed = true;
+			m_mousePress = true;
 			SetCapture(window);
 
 			return 0;
@@ -272,7 +272,7 @@ LRESULT PDOverlayWindow::handleMessage(HWND window, UINT message, WPARAM wParam,
 		case WM_LBUTTONUP:
 		{
 			m_mouseDown = false;
-			m_mouseReleased = true;
+			m_mouseRelease = true;
 			ReleaseCapture();
 
 			return 0;
@@ -283,7 +283,7 @@ LRESULT PDOverlayWindow::handleMessage(HWND window, UINT message, WPARAM wParam,
 			if (m_mouseDown)
 			{
 				m_mouseDown = false;
-				m_mouseReleased = true;
+				m_mouseRelease = true;
 			}
 
 			return 0;
@@ -291,7 +291,7 @@ LRESULT PDOverlayWindow::handleMessage(HWND window, UINT message, WPARAM wParam,
 
 		case WM_DISPLAYCHANGE:
 		{
-			m_displayChanged = true;
+			m_displayChange = true;
 
 			break;
 		}
@@ -313,7 +313,7 @@ PDOverlayMouse PDOverlayWindow::pollMouse()
 	if (m_mouseDown and (GetKeyState(VK_LBUTTON) & 0x8000) == 0)
 	{
 		m_mouseDown = false;
-		m_mouseReleased = true;
+		m_mouseRelease = true;
 
 		if (GetCapture() == m_window)
 		{
@@ -324,11 +324,11 @@ PDOverlayMouse PDOverlayWindow::pollMouse()
 	PDOverlayMouse mouse;
 	mouse.x = point.x - m_originX;
 	mouse.y = point.y - m_originY;
-	mouse.pressed = m_mousePressed;
-	mouse.released = m_mouseReleased;
+	mouse.pressed = m_mousePress;
+	mouse.released = m_mouseRelease;
 
-	m_mousePressed = false;
-	m_mouseReleased = false;
+	m_mousePress = false;
+	m_mouseRelease = false;
 
 	return mouse;
 }

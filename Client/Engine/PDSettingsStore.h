@@ -25,8 +25,8 @@ public:
 	bool load();
 	bool save() const;
 
-	bool exportTo(std::string const& path) const;
-	bool importFrom(std::string const& path);
+	bool exportFile(std::string const& path) const;
+	bool importFile(std::string const& path);
 
 	std::string const& path() const
 	{
@@ -47,8 +47,8 @@ public:
 	void setScene(std::vector<PDSceneEntry> const& entries);
 
 private:
-	bool readFrom(std::string const& path);
-	bool writeTo(std::string const& path) const;
+	bool read(std::string const& path);
+	bool write(std::string const& path) const;
 
 	mutable std::shared_mutex m_mutex;
 	std::atomic<std::uint64_t> m_version = 1;

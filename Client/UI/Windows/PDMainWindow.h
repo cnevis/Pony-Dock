@@ -27,15 +27,15 @@ struct PDSettingTarget
 
 struct PDCardInput
 {
-	bool clicked = false;
-	bool doubleClicked = false;
-	bool rightClicked = false;
+	bool click = false;
+	bool doubleClick = false;
+	bool rightClick = false;
 };
 
 class PDMainWindow
 {
 public:
-	PDMainWindow(PDMainApplication& app, PDImGui& host, PDDiagnostics& diagnostics);
+	PDMainWindow(PDMainApplication& app, PDImGui& imgui, PDDiagnostics& diagnostics);
 
 	void draw();
 	void restoreScene();
@@ -56,7 +56,9 @@ private:
 	static constexpr float CardPad = 8.0f;
 	static constexpr float CardSpacing = 14.0f;
 	static constexpr float RowPad = 10.0f;
+	static constexpr float SceneRowHeight = 56.0f;
 	static constexpr float SettingRowHeight = 48.0f;
+	static constexpr int ThumbnailBudget = 24;
 
 	enum class View
 	{
@@ -68,10 +70,10 @@ private:
 		Behaviors
 	};
 
-	enum VariantAction
+	enum class VariantAction
 	{
-		VariantStage,
-		VariantEdit
+		Stage,
+		Edit
 	};
 
 	void drawSidebar(float width, float height);
@@ -80,42 +82,46 @@ private:
 
 	void drawContent();
 	void drawBrowserView();
+	void drawGroupCard(std::size_t idx);
 	static float cardHeight();
 	PDCardInput drawPonyCard(
 		std::string const& name,
 		std::string const& sub,
 		PDTexture const* texture,
-		bool selected);
+		bool highlight);
 	PDTexture* thumbnail(std::string const& path);
 
-	void openGroup(std::size_t index, int action);
+	void openGroup(std::size_t idx, VariantAction action);
 	void applyVariant(PDPonyGroup const& group, PDPonyPack const& variant);
 	void openBehaviorEditor(std::string const& packPath, std::string const& displayName);
 
 	void drawSceneView();
+	bool drawSceneRow(PDSceneEntry* entry);
 	void addToScene(std::string const& displayName, PDPonyPack const& pack);
-	void removeSceneEntry(std::size_t index);
+	void removeSceneEntry(std::size_t idx);
 	int sceneTotalQuantity() const;
 	void drawForceBar();
 	void forceCombo(char const* label, std::string* id);
 
 	void drawLogView();
 	void drawSettingsView();
+	void drawMonitorRow(PDMonitor const& monitor);
 	void exportConfig();
 	void importConfig();
 
 	void drawFeaturesView();
 	void drawTargetButton();
 	void drawTargetModal();
+	bool drawTargetCard(int idx, std::vector<std::string> const& overrides);
 	void drawVariantModal();
 
 	static int gridColumns(float available, float* result);
 
-	static void addImageFitted(ImDrawList* drawList, PDTexture const* texture, ImVec2 areaMin, ImVec2 areaMax, float margin);
+	static void addFitImage(ImDrawList* drawList, PDTexture const* texture, ImVec2 areaMin, ImVec2 areaMax, float margin);
 	static void addShadow(ImDrawList* drawList, ImVec2 rectMin, ImVec2 rectMax);
 
 	PDMainApplication& m_app;
-	PDImGui& m_host;
+	PDImGui& m_imgui;
 	PDDiagnostics& m_diagnostics;
 	View m_activeView = View::Browser;
 
@@ -141,7 +147,7 @@ private:
 	std::vector<PDSettingTarget> m_targets;
 
 	int m_variantGroup = -1;
-	int m_variantAction = VariantStage;
+	VariantAction m_variantAction = VariantAction::Stage;
 	bool m_variantOpen = false;
 
 	PDBehaviorEditor m_behaviorEditor;

@@ -76,19 +76,14 @@ bool PDImGui::initialize(
 
 	if (m_window == nullptr)
 	{
-		UnregisterClass(windowClass.lpszClassName, instance);
-		s_instance = nullptr;
+		destroyWindow();
 
 		return false;
 	}
 
 	if (not createDevice())
 	{
-		destroyDevice();
-		DestroyWindow(m_window);
-		m_window = nullptr;
-		UnregisterClass(windowClass.lpszClassName, instance);
-		s_instance = nullptr;
+		destroyWindow();
 
 		return false;
 	}
@@ -99,33 +94,12 @@ bool PDImGui::initialize(
 	ImGui::StyleColorsDark();
 	PDTheme::apply();
 	ImGui::GetStyle().WindowRounding = 0.0f;
-
-	wchar_t windowsDirectory[MAX_PATH] = {};
-	UINT const length = GetWindowsDirectoryW(windowsDirectory, MAX_PATH);
-
-	if (length > 0 and length < MAX_PATH)
-	{
-		std::filesystem::path const fonts = std::filesystem::path(windowsDirectory) / "Fonts";
-		std::string const fontPath = pathString(fonts / "segoeui.ttf");
-		std::string const symbolPath = pathString(fonts / "seguisym.ttf");
-
-		if (ImFont* font = ImGui::GetIO().Fonts->AddFontFromFileTTF(fontPath.c_str(), 16.0f))
-		{
-			ImFontConfig config;
-			config.MergeMode = true;
-			ImGui::GetIO().Fonts->AddFontFromFileTTF(symbolPath.c_str(), 16.0f, &config);
-			ImGui::GetIO().FontDefault = font;
-		}
-	}
+	loadFonts();
 
 	if (not ImGui_ImplWin32_Init(m_window))
 	{
 		ImGui::DestroyContext();
-		destroyDevice();
-		DestroyWindow(m_window);
-		m_window = nullptr;
-		UnregisterClass(windowClass.lpszClassName, instance);
-		s_instance = nullptr;
+		destroyWindow();
 
 		return false;
 	}
@@ -134,11 +108,7 @@ bool PDImGui::initialize(
 	{
 		ImGui_ImplWin32_Shutdown();
 		ImGui::DestroyContext();
-		destroyDevice();
-		DestroyWindow(m_window);
-		m_window = nullptr;
-		UnregisterClass(windowClass.lpszClassName, instance);
-		s_instance = nullptr;
+		destroyWindow();
 
 		return false;
 	}
@@ -157,19 +127,8 @@ void PDImGui::shutdown()
 	ImGui_ImplDX11_Shutdown();
 	ImGui_ImplWin32_Shutdown();
 	ImGui::DestroyContext();
-
-	destroyDevice();
-
-	if (m_window != nullptr)
-	{
-		DestroyWindow(m_window);
-	}
-
-	UnregisterClass("PonyDockClassName", m_instance);
-
-	m_window = nullptr;
+	destroyWindow();
 	m_instance = nullptr;
-	s_instance = nullptr;
 }
 
 bool PDImGui::pumpMessages()
@@ -314,6 +273,44 @@ void PDImGui::destroyRenderTarget()
 		m_renderTargetView->Release();
 		m_renderTargetView = nullptr;
 	}
+}
+
+void PDImGui::loadFonts()
+{
+	wchar_t windowsDirectory[MAX_PATH] = {};
+	UINT const length = GetWindowsDirectoryW(windowsDirectory, MAX_PATH);
+
+	if (length == 0 or length >= MAX_PATH)
+	{
+		return;
+	}
+
+	std::filesystem::path const fonts = std::filesystem::path(windowsDirectory) / "Fonts";
+	std::string const fontPath = pathString(fonts / "segoeui.ttf");
+	std::string const symbolPath = pathString(fonts / "seguisym.ttf");
+
+	if (ImFont* font = ImGui::GetIO().Fonts->AddFontFromFileTTF(fontPath.c_str(), 16.0f))
+	{
+		ImFontConfig config;
+		config.MergeMode = true;
+		ImGui::GetIO().Fonts->AddFontFromFileTTF(symbolPath.c_str(), 16.0f, &config);
+		ImGui::GetIO().FontDefault = font;
+	}
+}
+
+void PDImGui::destroyWindow()
+{
+	destroyDevice();
+
+	if (m_window != nullptr)
+	{
+		DestroyWindow(m_window);
+	}
+
+	UnregisterClass("PonyDockClassName", m_instance);
+
+	m_window = nullptr;
+	s_instance = nullptr;
 }
 
 void PDImGui::renderFrame()

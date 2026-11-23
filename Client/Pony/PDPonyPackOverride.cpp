@@ -15,7 +15,7 @@ static std::string packFolderName(std::string const& packPath)
 	return pathString(nativePath(packPath).lexically_normal().filename());
 }
 
-std::string ponyPackOverrideRoot()
+static std::string overrideFolder()
 {
 	PWSTR folder = nullptr;
 
@@ -33,7 +33,7 @@ std::string ponyPackOverrideRoot()
 	return pathString(path);
 }
 
-std::string ponyPackOverridePath(std::string const& packPath)
+static std::string overridePath(std::string const& packPath)
 {
 	std::string const folder = packFolderName(packPath);
 
@@ -42,12 +42,12 @@ std::string ponyPackOverridePath(std::string const& packPath)
 		return std::string();
 	}
 
-	return pathString(nativePath(ponyPackOverrideRoot()) / nativePath(folder + ".json"));
+	return pathString(nativePath(overrideFolder()) / nativePath(folder + ".json"));
 }
 
 bool ponyPackOverrideExists(std::string const& packPath)
 {
-	std::string const path = ponyPackOverridePath(packPath);
+	std::string const path = overridePath(packPath);
 
 	if (path.empty())
 	{
@@ -63,7 +63,7 @@ std::string ponyPackDocumentPath(std::string const& packPath)
 {
 	if (ponyPackOverrideExists(packPath))
 	{
-		return ponyPackOverridePath(packPath);
+		return overridePath(packPath);
 	}
 
 	return pathString(nativePath(packPath) / "pony.json");
@@ -73,7 +73,7 @@ bool writePonyPackOverride(std::string const& packPath, std::string const& text,
 {
 	assert(error != nullptr);
 
-	std::string const path = ponyPackOverridePath(packPath);
+	std::string const path = overridePath(packPath);
 
 	if (path.empty())
 	{
@@ -133,7 +133,7 @@ bool removePonyPackOverride(std::string const& packPath, std::string* error)
 {
 	assert(error != nullptr);
 
-	std::string const path = ponyPackOverridePath(packPath);
+	std::string const path = overridePath(packPath);
 
 	if (path.empty())
 	{

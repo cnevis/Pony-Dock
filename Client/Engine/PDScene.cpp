@@ -34,7 +34,7 @@ static std::pair<std::string_view, PDMovement> const g_Movements[] =
 	{"All", PDMovement::All}
 };
 
-static std::string_view const g_HeldMovements[] =
+static std::string_view const g_DragMovements[] =
 {
 	"Dragged", "None", "MouseOver", "Sleep"
 };
@@ -65,6 +65,11 @@ static std::size_t findBehavior(PDPonyPackData const& data, std::string const& i
 	return data.behaviors.size();
 }
 
+static bool targets(PDPonyInteractionData const& interaction, std::string const& id)
+{
+	return std::find(interaction.targets.begin(), interaction.targets.end(), id) != interaction.targets.end();
+}
+
 static bool eligible(PDPonyBehaviorData const& behavior, PDBehavior const& state, PDSettings const& settings)
 {
 	if (behavior.skip or (behavior.special and not settings.extended))
@@ -92,9 +97,9 @@ void PDScene::initialize(ID3D11Device* device, PDDiagnostics* diagnostics, PDSet
 PDSettings const& PDScene::settings(entt::entity entity) const
 {
 	PDPonyPackData const& data = *m_registry.get<PDPack>(entity).data;
-	std::unordered_map<std::string, PDSettings>::const_iterator const found = m_snapshot.packs.find(data.id);
+	std::unordered_map<std::string, PDSettings>::const_iterator const it = m_snapshot.packs.find(data.id);
 
-	return found != m_snapshot.packs.end() ? found->second : m_snapshot.defaults;
+	return it != m_snapshot.packs.end() ? it->second : m_snapshot.defaults;
 }
 
 void PDScene::reloadPack(std::string const& packPath)
@@ -107,17 +112,17 @@ void PDScene::reloadPack(std::string const& packPath)
 		return;
 	}
 
-	PDPonyPackData loaded;
+	PDPonyPackData data;
 	std::string error;
 
-	if (not loadPonyPack(key, &loaded, &error))
+	if (not loadPonyPack(key, &data, &error))
 	{
 		m_diagnostics->write("Pack reload failed: " + error);
 
 		return;
 	}
 
-	existing->second = std::move(loaded);
+	existing->second = std::move(data);
 
 	for (entt::entity const entity : m_registry.view<PDPack, PDBehavior, PDInteraction>())
 	{
@@ -212,10 +217,10 @@ PDPonyPackData const* PDScene::pack(std::string const& packPath)
 		return existing->second.valid ? &existing->second : nullptr;
 	}
 
-	PDPonyPackData loaded;
+	PDPonyPackData data;
 	std::string error;
 
-	if (not loadPonyPack(key, &loaded, &error))
+	if (not loadPonyPack(key, &data, &error))
 	{
 		m_diagnostics->writeOnce(key, "Pack load failed: " + error);
 		m_packs.emplace(key, PDPonyPackData());
@@ -223,9 +228,9 @@ PDPonyPackData const* PDScene::pack(std::string const& packPath)
 		return nullptr;
 	}
 
-	m_diagnostics->write("Loaded pack " + loaded.id + " (" + std::to_string(loaded.animations.size()) + " animations, " + std::to_string(loaded.behaviors.size()) + " behaviors)");
+	m_diagnostics->write("Loaded pack " + data.id + " (" + std::to_string(data.animations.size()) + " animations, " + std::to_string(data.behaviors.size()) + " behaviors)");
 
-	return &m_packs.emplace(key, std::move(loaded)).first->second;
+	return &m_packs.emplace(key, std::move(data)).first->second;
 }
 
 void PDScene::spawnEntity(std::string const& packPath, float x, float y)
@@ -319,7 +324,7 @@ std::size_t PDScene::pickBehavior(entt::entity entity)
 {
 	PDPonyPackData const& data = *m_registry.get<PDPack>(entity).data;
 	PDBehavior const& state = m_registry.get<PDBehavior>(entity);
-	PDSettings const& enabled = settings(entity);
+	PDSettings const& cfg = settings(entity);
 	std::vector<std::size_t> candidates;
 	double total = 0.0;
 
@@ -327,7 +332,7 @@ std::size_t PDScene::pickBehavior(entt::entity entity)
 	{
 		PDPonyBehaviorData const& behavior = data.behaviors[i];
 
-		if (not eligible(behavior, state, enabled))
+		if (not eligible(behavior, state, cfg))
 		{
 			continue;
 		}
@@ -377,19 +382,19 @@ std::size_t PDScene::pickBehavior(entt::entity entity)
 	return fallback;
 }
 
-std::size_t PDScene::pickHeldBehavior(entt::entity entity)
+std::size_t PDScene::pickDragBehavior(entt::entity entity)
 {
 	PDPonyPackData const& data = *m_registry.get<PDPack>(entity).data;
-	PDSettings const& enabled = settings(entity);
+	PDSettings const& cfg = settings(entity);
 	std::vector<std::size_t> matches;
 
-	for (std::string_view const name : g_HeldMovements)
+	for (std::string_view const name : g_DragMovements)
 	{
 		for (std::size_t i = 0; i < data.behaviors.size(); i += 1)
 		{
 			PDPonyBehaviorData const& behavior = data.behaviors[i];
 
-			if (behavior.movement == name and (enabled.extended or not behavior.special))
+			if (behavior.movement == name and (cfg.extended or not behavior.special))
 			{
 				matches.push_back(i);
 			}
@@ -404,16 +409,12 @@ std::size_t PDScene::pickHeldBehavior(entt::entity entity)
 	return data.behaviors.size();
 }
 
-void PDScene::enterBehavior(entt::entity entity, std::size_t index, int depth)
+void PDScene::enterBehavior(entt::entity entity, std::size_t idx, int depth)
 {
 	PDPonyPackData const& data = *m_registry.get<PDPack>(entity).data;
 	PDBehavior& state = m_registry.get<PDBehavior>(entity);
-	bool horizontal = false;
-	bool vertical = false;
-	float angleMin = 15.0f;
-	float angleSpan = 60.0f;
 
-	state.active = index < data.behaviors.size();
+	state.active = idx < data.behaviors.size();
 	state.vx = 0.0f;
 	state.vy = 0.0f;
 	state.motion = PDMotion::Free;
@@ -426,7 +427,7 @@ void PDScene::enterBehavior(entt::entity entity, std::size_t index, int depth)
 		return;
 	}
 
-	PDPonyBehaviorData const& behavior = data.behaviors[index];
+	PDPonyBehaviorData const& behavior = data.behaviors[idx];
 
 	if (behavior.special and not settings(entity).extended)
 	{
@@ -436,7 +437,7 @@ void PDScene::enterBehavior(entt::entity entity, std::size_t index, int depth)
 		return;
 	}
 
-	state.index = index;
+	state.idx = idx;
 	state.linkDepth = depth;
 	state.timer = std::max(0.25f, behavior.durationMinSeconds + m_random(m_rng) * (behavior.durationMaxSeconds - behavior.durationMinSeconds));
 
@@ -454,6 +455,25 @@ void PDScene::enterBehavior(entt::entity entity, std::size_t index, int depth)
 			state.motion = PDMotion::Follow;
 		}
 	}
+
+	pickVelocity(behavior, &state);
+
+	if (state.vx != 0.0f)
+	{
+		setFacing(entity, state.vx > 0.0f);
+	}
+
+	playAnimation(entity, behavior.animation, not behavior.preventAnimationLoop, behavior.preventAnimationLoop);
+}
+
+void PDScene::pickVelocity(PDPonyBehaviorData const& behavior, PDBehavior* state)
+{
+	assert(state != nullptr);
+
+	bool horizontal = false;
+	bool vertical = false;
+	float angleMin = 15.0f;
+	float angleSpan = 60.0f;
 
 	switch (movement(behavior.movement))
 	{
@@ -529,43 +549,36 @@ void PDScene::enterBehavior(entt::entity entity, std::size_t index, int depth)
 	{
 		float const angle = (angleMin + m_random(m_rng) * angleSpan) * std::numbers::pi_v<float> / 180.0f;
 
-		state.vx = std::cos(angle) * signX * speed;
-		state.vy = std::sin(angle) * signY * speed;
+		state->vx = std::cos(angle) * signX * speed;
+		state->vy = std::sin(angle) * signY * speed;
 	}
 	else if (vertical)
 	{
-		state.vy = signY * speed;
+		state->vy = signY * speed;
 	}
 	else if (horizontal)
 	{
-		state.vx = signX * speed;
+		state->vx = signX * speed;
 	}
-
-	if (state.vx != 0.0f)
-	{
-		setFacing(entity, state.vx > 0.0f);
-	}
-
-	playAnimation(entity, behavior.animation, not behavior.preventAnimationLoop, behavior.preventAnimationLoop);
 }
 
 void PDScene::advanceBehavior(entt::entity entity)
 {
 	PDPonyPackData const& data = *m_registry.get<PDPack>(entity).data;
 	PDBehavior const& state = m_registry.get<PDBehavior>(entity);
-	PDSettings const& enabled = settings(entity);
+	PDSettings const& cfg = settings(entity);
 
 	m_registry.get<PDInteraction>(entity).busy = false;
 
-	if (state.active and state.motion != PDMotion::Chase and enabled.linked and state.linkDepth < 16)
+	if (state.active and state.motion != PDMotion::Chase and cfg.linked and state.linkDepth < 16)
 	{
-		std::string const& linked = data.behaviors[state.index].linkedBehavior;
+		std::string const& link = data.behaviors[state.idx].linkedBehavior;
 
-		if (not linked.empty())
+		if (not link.empty())
 		{
-			std::size_t const next = findBehavior(data, linked);
+			std::size_t const next = findBehavior(data, link);
 
-			if (next < data.behaviors.size() and (enabled.extended or not data.behaviors[next].special))
+			if (next < data.behaviors.size() and (cfg.extended or not data.behaviors[next].special))
 			{
 				enterBehavior(entity, next, state.linkDepth + 1);
 
@@ -574,7 +587,7 @@ void PDScene::advanceBehavior(entt::entity entity)
 		}
 	}
 
-	if (enabled.chasing and m_random(m_rng) < 0.05f and startChase(entity))
+	if (cfg.chasing and m_random(m_rng) < 0.05f and startChase(entity))
 	{
 		return;
 	}
@@ -586,9 +599,9 @@ void PDScene::updateBehavior(entt::entity entity, float deltaSeconds)
 {
 	PDPonyPackData const& data = *m_registry.get<PDPack>(entity).data;
 	PDBehavior& state = m_registry.get<PDBehavior>(entity);
-	PDSettings const& enabled = settings(entity);
+	PDSettings const& cfg = settings(entity);
 
-	if (state.active and data.behaviors[state.index].special and not enabled.extended)
+	if (state.active and data.behaviors[state.idx].special and not cfg.extended)
 	{
 		m_registry.get<PDInteraction>(entity).busy = false;
 		state.active = false;
@@ -609,14 +622,14 @@ void PDScene::updateBehavior(entt::entity entity, float deltaSeconds)
 	{
 		if (not state.grabbed)
 		{
-			std::size_t const held = pickHeldBehavior(entity);
+			std::size_t const idx = pickDragBehavior(entity);
 
 			m_registry.get<PDInteraction>(entity).busy = false;
 			state.grabbed = true;
 
-			if (held < data.behaviors.size())
+			if (idx < data.behaviors.size())
 			{
-				enterBehavior(entity, held, 0);
+				enterBehavior(entity, idx, 0);
 			}
 		}
 
@@ -629,7 +642,7 @@ void PDScene::updateBehavior(entt::entity entity, float deltaSeconds)
 		PDSprite const& sprite = m_registry.get<PDSprite>(entity);
 
 		state.grabbed = false;
-		state.monitor = monitorAt(position.x - sprite.offsetX + sprite.width * 0.5f, position.y - sprite.offsetY + sprite.height * 0.5f);
+		state.monitor = monitor(position.x - sprite.offsetX + sprite.width * 0.5f, position.y - sprite.offsetY + sprite.height * 0.5f);
 		advanceBehavior(entity);
 
 		return;
@@ -672,7 +685,7 @@ void PDScene::updateBehavior(entt::entity entity, float deltaSeconds)
 
 	state.timer -= deltaSeconds;
 
-	if (state.timer <= 0.0f or (data.behaviors[state.index].preventAnimationLoop and animation.finished))
+	if (state.timer <= 0.0f or (data.behaviors[state.idx].preventAnimationLoop and animation.finished))
 	{
 		advanceBehavior(entity);
 
@@ -682,7 +695,7 @@ void PDScene::updateBehavior(entt::entity entity, float deltaSeconds)
 	moveEntity(entity, deltaSeconds);
 }
 
-int PDScene::monitorAt(float x, float y) const
+int PDScene::monitor(float x, float y) const
 {
 	for (std::size_t i = 0; i < m_monitors.size(); i += 1)
 	{
@@ -707,7 +720,7 @@ void PDScene::placeEntity(entt::entity entity)
 	PDBehavior& state = m_registry.get<PDBehavior>(entity);
 	PDPosition& position = m_registry.get<PDPosition>(entity);
 	PDSprite const& sprite = m_registry.get<PDSprite>(entity);
-	PDSettings const& enabled = settings(entity);
+	PDSettings const& cfg = settings(entity);
 	std::size_t const i = std::uniform_int_distribution<std::size_t>(0, m_monitors.size() - 1)(m_rng);
 	PDRect const& area = m_monitors[i];
 	float const width = std::max(0.0f, area.width - sprite.width);
@@ -717,7 +730,7 @@ void PDScene::placeEntity(entt::entity entity)
 	state.placed = true;
 	position.x = area.x + sprite.offsetX + m_random(m_rng) * width;
 
-	switch (enabled.start)
+	switch (cfg.start)
 	{
 		case PDSpawnPosition::Anywhere:
 		{
@@ -758,7 +771,7 @@ void PDScene::constrain(entt::entity entity, float* vx, float* vy)
 	PDSprite const& sprite = m_registry.get<PDSprite>(entity);
 	float centerX = position.x - sprite.offsetX + sprite.width * 0.5f;
 	float centerY = position.y - sprite.offsetY + sprite.height * 0.5f;
-	int const current = monitorAt(centerX, centerY);
+	int const current = monitor(centerX, centerY);
 
 	if (current >= 0)
 	{
@@ -791,12 +804,12 @@ void PDScene::constrain(entt::entity entity, float* vx, float* vy)
 		position.x = area.x + (area.width - sprite.width) * 0.5f + sprite.offsetX;
 		*vx = 0.0f;
 	}
-	else if (left < area.x and monitorAt(area.x - 0.5f, centerY) < 0)
+	else if (left < area.x and monitor(area.x - 0.5f, centerY) < 0)
 	{
 		position.x = area.x + sprite.offsetX;
 		*vx = std::abs(*vx);
 	}
-	else if (left + sprite.width > area.x + area.width and monitorAt(area.x + area.width + 0.5f, centerY) < 0)
+	else if (left + sprite.width > area.x + area.width and monitor(area.x + area.width + 0.5f, centerY) < 0)
 	{
 		position.x = area.x + area.width - sprite.width + sprite.offsetX;
 		*vx = -std::abs(*vx);
@@ -804,12 +817,12 @@ void PDScene::constrain(entt::entity entity, float* vx, float* vy)
 
 	centerX = position.x - sprite.offsetX + sprite.width * 0.5f;
 
-	int const crossed = monitorAt(centerX, centerY);
+	int const afterX = monitor(centerX, centerY);
 
-	if (crossed >= 0)
+	if (afterX >= 0)
 	{
-		state.monitor = crossed;
-		area = m_monitors[(std::size_t)crossed];
+		state.monitor = afterX;
+		area = m_monitors[(std::size_t)afterX];
 	}
 
 	float const top = position.y - sprite.offsetY;
@@ -819,12 +832,12 @@ void PDScene::constrain(entt::entity entity, float* vx, float* vy)
 		position.y = area.y + (area.height - sprite.height) * 0.5f + sprite.offsetY;
 		*vy = 0.0f;
 	}
-	else if (top < area.y and monitorAt(centerX, area.y - 0.5f) < 0)
+	else if (top < area.y and monitor(centerX, area.y - 0.5f) < 0)
 	{
 		position.y = area.y + sprite.offsetY;
 		*vy = std::abs(*vy);
 	}
-	else if (top + sprite.height > area.y + area.height and monitorAt(centerX, area.y + area.height + 0.5f) < 0)
+	else if (top + sprite.height > area.y + area.height and monitor(centerX, area.y + area.height + 0.5f) < 0)
 	{
 		position.y = area.y + area.height - sprite.height + sprite.offsetY;
 		*vy = -std::abs(*vy);
@@ -832,19 +845,19 @@ void PDScene::constrain(entt::entity entity, float* vx, float* vy)
 
 	centerY = position.y - sprite.offsetY + sprite.height * 0.5f;
 
-	int const final = monitorAt(centerX, centerY);
+	int const afterY = monitor(centerX, centerY);
 
-	if (final >= 0)
+	if (afterY >= 0)
 	{
-		state.monitor = final;
+		state.monitor = afterY;
 	}
 }
 
 void PDScene::moveEntity(entt::entity entity, float deltaSeconds)
 {
-	PDSettings const& enabled = settings(entity);
+	PDSettings const& cfg = settings(entity);
 
-	if (not enabled.movement)
+	if (not cfg.movement)
 	{
 		return;
 	}
@@ -855,7 +868,7 @@ void PDScene::moveEntity(entt::entity entity, float deltaSeconds)
 	float vx = state.vx;
 	float vy = state.vy;
 
-	if (not enabled.flying and vy != 0.0f)
+	if (not cfg.flying and vy != 0.0f)
 	{
 		float const sign = vx != 0.0f ? vx : (animation.facingRight ? 1.0f : -1.0f);
 
@@ -863,8 +876,8 @@ void PDScene::moveEntity(entt::entity entity, float deltaSeconds)
 		vy = 0.0f;
 	}
 
-	position.x += vx * enabled.speed * deltaSeconds;
-	position.y += vy * enabled.speed * deltaSeconds;
+	position.x += vx * cfg.speed * deltaSeconds;
+	position.y += vy * cfg.speed * deltaSeconds;
 	constrain(entity, &vx, &vy);
 
 	if (vx != 0.0f)
@@ -905,7 +918,7 @@ bool PDScene::startInteraction(entt::entity entity, PDPonyInteractionData const&
 
 		PDPonyPackData const& otherData = *m_registry.get<PDPack>(other).data;
 
-		if (std::find(interaction.targets.begin(), interaction.targets.end(), otherData.id) == interaction.targets.end())
+		if (not targets(interaction, otherData.id))
 		{
 			continue;
 		}
@@ -933,8 +946,8 @@ bool PDScene::pairInteraction(entt::entity entity, entt::entity other, PDPonyInt
 {
 	PDPonyPackData const& data = *m_registry.get<PDPack>(entity).data;
 	PDPonyPackData const& otherData = *m_registry.get<PDPack>(other).data;
-	PDSettings const& enabled = settings(entity);
-	PDSettings const& otherSettings = settings(other);
+	PDSettings const& cfg = settings(entity);
+	PDSettings const& otherCfg = settings(other);
 	std::vector<std::pair<std::size_t, std::size_t>> matches;
 
 	for (std::string const& id : interaction.behaviors)
@@ -947,8 +960,8 @@ bool PDScene::pairInteraction(entt::entity entity, entt::entity other, PDPonyInt
 			continue;
 		}
 
-		if ((data.behaviors[a].special and not enabled.extended)
-			or (otherData.behaviors[b].special and not otherSettings.extended))
+		if ((data.behaviors[a].special and not cfg.extended)
+			or (otherData.behaviors[b].special and not otherCfg.extended))
 		{
 			continue;
 		}
@@ -1000,7 +1013,7 @@ void PDScene::interact(entt::entity entity, entt::entity other)
 
 	for (PDPonyInteractionData const& interaction : data.interactions)
 	{
-		if (std::find(interaction.targets.begin(), interaction.targets.end(), otherData.id) == interaction.targets.end())
+		if (not targets(interaction, otherData.id))
 		{
 			continue;
 		}
@@ -1013,7 +1026,7 @@ void PDScene::interact(entt::entity entity, entt::entity other)
 
 	for (PDPonyInteractionData const& interaction : otherData.interactions)
 	{
-		if (std::find(interaction.targets.begin(), interaction.targets.end(), data.id) == interaction.targets.end())
+		if (not targets(interaction, data.id))
 		{
 			continue;
 		}
@@ -1073,14 +1086,14 @@ std::size_t PDScene::movingBehavior(entt::entity entity, bool fastest) const
 {
 	PDPonyPackData const& data = *m_registry.get<PDPack>(entity).data;
 	PDBehavior const& state = m_registry.get<PDBehavior>(entity);
-	PDSettings const& enabled = settings(entity);
-	std::size_t found = data.behaviors.size();
+	PDSettings const& cfg = settings(entity);
+	std::size_t best = data.behaviors.size();
 
 	for (std::size_t i = 0; i < data.behaviors.size(); i += 1)
 	{
 		PDPonyBehaviorData const& behavior = data.behaviors[i];
 
-		if (not eligible(behavior, state, enabled) or not behavior.followTarget.empty())
+		if (not eligible(behavior, state, cfg) or not behavior.followTarget.empty())
 		{
 			continue;
 		}
@@ -1090,9 +1103,9 @@ std::size_t PDScene::movingBehavior(entt::entity entity, bool fastest) const
 			continue;
 		}
 
-		if (found == data.behaviors.size() or behavior.speedPxPerSec > data.behaviors[found].speedPxPerSec)
+		if (best == data.behaviors.size() or behavior.speedPxPerSec > data.behaviors[best].speedPxPerSec)
 		{
-			found = i;
+			best = i;
 		}
 
 		if (not fastest)
@@ -1101,14 +1114,14 @@ std::size_t PDScene::movingBehavior(entt::entity entity, bool fastest) const
 		}
 	}
 
-	return found;
+	return best;
 }
 
 std::size_t PDScene::stillBehavior(entt::entity entity, std::string const& type) const
 {
 	PDPonyPackData const& data = *m_registry.get<PDPack>(entity).data;
 	PDBehavior const& state = m_registry.get<PDBehavior>(entity);
-	PDSettings const& enabled = settings(entity);
+	PDSettings const& cfg = settings(entity);
 	std::size_t fallback = data.behaviors.size();
 
 	for (std::size_t i = 0; i < data.behaviors.size(); i += 1)
@@ -1120,7 +1133,7 @@ std::size_t PDScene::stillBehavior(entt::entity entity, std::string const& type)
 			continue;
 		}
 
-		if (behavior.special and not enabled.extended)
+		if (behavior.special and not cfg.extended)
 		{
 			continue;
 		}
@@ -1148,8 +1161,8 @@ std::size_t PDScene::idleBehavior(entt::entity entity) const
 {
 	PDPonyPackData const& data = *m_registry.get<PDPack>(entity).data;
 	PDBehavior const& state = m_registry.get<PDBehavior>(entity);
-	PDSettings const& enabled = settings(entity);
-	std::size_t found = data.behaviors.size();
+	PDSettings const& cfg = settings(entity);
+	std::size_t best = data.behaviors.size();
 	int bestRank = -1;
 	float bestChance = 0.0f;
 
@@ -1163,7 +1176,7 @@ std::size_t PDScene::idleBehavior(entt::entity entity) const
 			continue;
 		}
 
-		if (not eligible(behavior, state, enabled) or not behavior.followTarget.empty())
+		if (not eligible(behavior, state, cfg) or not behavior.followTarget.empty())
 		{
 			continue;
 		}
@@ -1174,23 +1187,23 @@ std::size_t PDScene::idleBehavior(entt::entity entity) const
 		}
 
 		std::string const id = toLower(behavior.id);
-		bool const named = id.find("stand") != std::string::npos or id.find("idle") != std::string::npos;
-		int const rank = (named ? 2 : 0) + (hover ? 1 : 0);
+		bool const idleName = id.find("stand") != std::string::npos or id.find("idle") != std::string::npos;
+		int const rank = (idleName ? 2 : 0) + (hover ? 1 : 0);
 
 		if (rank > bestRank or (rank == bestRank and behavior.chance > bestChance))
 		{
 			bestRank = rank;
 			bestChance = behavior.chance;
-			found = i;
+			best = i;
 		}
 	}
 
-	if (found == data.behaviors.size())
+	if (best == data.behaviors.size())
 	{
-		found = stillBehavior(entity, "None");
+		best = stillBehavior(entity, "None");
 	}
 
-	return found;
+	return best;
 }
 
 bool PDScene::updateFollow(entt::entity entity, float deltaSeconds)
@@ -1203,8 +1216,8 @@ bool PDScene::updateFollow(entt::entity entity, float deltaSeconds)
 	}
 
 	PDPonyPackData const& data = *m_registry.get<PDPack>(entity).data;
-	PDPonyBehaviorData const& behavior = data.behaviors[state.index];
-	PDSettings const& enabled = settings(entity);
+	PDPonyBehaviorData const& behavior = data.behaviors[state.idx];
+	PDSettings const& cfg = settings(entity);
 	PDPosition const& position = m_registry.get<PDPosition>(entity);
 	PDPosition const& target = m_registry.get<PDPosition>(state.follow);
 	PDSprite const& sprite = m_registry.get<PDSprite>(entity);
@@ -1227,9 +1240,9 @@ bool PDScene::updateFollow(entt::entity entity, float deltaSeconds)
 	}
 
 	float const dx = targetX + offsetX - x;
-	float const dy = enabled.flying ? target.y + offsetY - position.y : 0.0f;
+	float const dy = cfg.flying ? target.y + offsetY - position.y : 0.0f;
 	float const threshold = state.vx != 0.0f or state.vy != 0.0f ? 1.0f : 16.0f;
-	bool const moving = enabled.movement and behavior.speedPxPerSec > 0.0f and std::hypot(dx, dy) > threshold;
+	bool const moving = cfg.movement and behavior.speedPxPerSec > 0.0f and std::hypot(dx, dy) > threshold;
 	std::size_t visual = data.behaviors.size();
 	float speed = behavior.speedPxPerSec;
 
@@ -1274,29 +1287,29 @@ bool PDScene::startFollow(entt::entity entity, entt::entity target)
 	PDPonyPackData const& data = *m_registry.get<PDPack>(entity).data;
 	std::string const& targetId = m_registry.get<PDPack>(target).data->id;
 	bool const extended = settings(entity).extended;
-	std::size_t index = data.behaviors.size();
+	std::size_t idx = data.behaviors.size();
 
 	for (std::size_t i = 0; i < data.behaviors.size(); i += 1)
 	{
 		if (data.behaviors[i].followTarget == targetId and (extended or not data.behaviors[i].special))
 		{
-			index = i;
+			idx = i;
 
 			break;
 		}
 	}
 
-	if (index == data.behaviors.size())
+	if (idx == data.behaviors.size())
 	{
-		index = movingBehavior(entity, false);
+		idx = movingBehavior(entity, false);
 	}
 
-	if (index == data.behaviors.size())
+	if (idx == data.behaviors.size())
 	{
 		return false;
 	}
 
-	enterBehavior(entity, index, 0);
+	enterBehavior(entity, idx, 0);
 
 	PDBehavior& state = m_registry.get<PDBehavior>(entity);
 
@@ -1315,7 +1328,7 @@ bool PDScene::startChase(entt::entity entity)
 		return false;
 	}
 
-	if (monitorAt(m_cursorX, m_cursorY) < 0)
+	if (monitor(m_cursorX, m_cursorY) < 0)
 	{
 		return false;
 	}
@@ -1372,7 +1385,7 @@ void PDScene::updateChase(entt::entity entity, float deltaSeconds)
 		return;
 	}
 
-	steer(entity, dx, dy, data.behaviors[state.index].speedPxPerSec, deltaSeconds);
+	steer(entity, dx, dy, data.behaviors[state.idx].speedPxPerSec, deltaSeconds);
 	moveEntity(entity, deltaSeconds);
 }
 
@@ -1459,16 +1472,16 @@ bool PDScene::playAnimation(entt::entity entity, std::string const& name, bool l
 {
 	PDPonyPackData const& data = *m_registry.get<PDPack>(entity).data;
 	PDAnimation& animation = m_registry.get<PDAnimation>(entity);
-	std::unordered_map<std::string, PDPonyAnimationRef>::const_iterator const found = data.animations.find(name);
+	std::unordered_map<std::string, PDPonyAnimationRef>::const_iterator const it = data.animations.find(name);
 
-	if (found == data.animations.end())
+	if (it == data.animations.end())
 	{
 		m_diagnostics->writeOnce(data.id + "/" + name, "Unknown animation '" + name + "' in pack " + data.id);
 
 		return false;
 	}
 
-	std::string const& path = animation.facingRight ? found->second.right : found->second.left;
+	std::string const& path = animation.facingRight ? it->second.right : it->second.left;
 	PDAnimationClip const* const clip = m_animations.clip(path);
 
 	if (clip == nullptr)
@@ -1476,9 +1489,9 @@ bool PDScene::playAnimation(entt::entity entity, std::string const& name, bool l
 		return false;
 	}
 
-	bool const unchanged = animation.clip == clip and animation.name == name and animation.loop == loop;
+	bool const same = animation.clip == clip and animation.name == name and animation.loop == loop;
 
-	if (unchanged and not restart and not animation.finished)
+	if (same and not restart and not animation.finished)
 	{
 		return true;
 	}
@@ -1504,16 +1517,16 @@ void PDScene::setFacing(entt::entity entity, bool facingRight)
 	}
 
 	PDPonyPackData const& data = *m_registry.get<PDPack>(entity).data;
-	std::unordered_map<std::string, PDPonyAnimationRef>::const_iterator const found = data.animations.find(animation.name);
+	std::unordered_map<std::string, PDPonyAnimationRef>::const_iterator const it = data.animations.find(animation.name);
 
 	animation.facingRight = facingRight;
 
-	if (found == data.animations.end())
+	if (it == data.animations.end())
 	{
 		return;
 	}
 
-	PDAnimationClip const* const clip = m_animations.clip(facingRight ? found->second.right : found->second.left);
+	PDAnimationClip const* const clip = m_animations.clip(facingRight ? it->second.right : it->second.left);
 
 	if (clip == nullptr or clip == animation.clip)
 	{

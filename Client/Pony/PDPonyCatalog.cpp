@@ -9,14 +9,14 @@
 #include <fstream>
 #include <unordered_map>
 
-void PDPonyCatalog::load(std::string const& packsRoot)
+void PDPonyCatalog::load(std::string const& folder)
 {
 	m_groups.clear();
 
 	std::unordered_map<std::string, std::size_t> groupByName;
 	std::error_code error;
 
-	for (std::filesystem::directory_iterator it(nativePath(packsRoot), error), end; it != end and not error; it.increment(error))
+	for (std::filesystem::directory_iterator it(nativePath(folder), error), end; it != end and not error; it.increment(error))
 	{
 		std::filesystem::path const packPath = it->path();
 		std::filesystem::path const jsonPath = packPath / "pony.json";

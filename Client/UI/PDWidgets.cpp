@@ -4,7 +4,6 @@
 
 static constexpr float ToolbarPadX = 10.0f;
 static constexpr float ToolbarPadY = 6.0f;
-static constexpr float ModalPad = 16.0f;
 
 void beginToolbar()
 {
@@ -45,7 +44,7 @@ bool beginModal(char const* title, ImVec2 size)
 	ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
 	ImGui::SetNextWindowSize(size, ImGuiCond_Always);
 	ImGui::PushStyleColor(ImGuiCol_PopupBg, PDTheme::Popup);
-	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(ModalPad, ModalPad));
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16.0f, 16.0f));
 
 	bool const open = ImGui::BeginPopupModal(
 		title,

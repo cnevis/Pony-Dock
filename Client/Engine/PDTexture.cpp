@@ -45,7 +45,7 @@ static ID3D11ShaderResourceView* upload(ID3D11Device* device, std::uint8_t const
 PDTexture::PDTexture(ID3D11Device* device, std::string const& path)
 {
 	int channels = 0;
-	std::uint8_t* pixels = stbi_load(path.c_str(), &m_width, &m_height, &channels, 4);
+	std::uint8_t* pixels = stbi_load(path.c_str(), &m_width, &m_height, &channels, STBI_rgb_alpha);
 
 	if (pixels == nullptr)
 	{

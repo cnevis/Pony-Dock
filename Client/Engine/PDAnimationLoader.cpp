@@ -26,6 +26,84 @@ static bool finiteNumber(nlohmann::json const& value)
 		and number <= std::numeric_limits<float>::max();
 }
 
+static bool parseFrame(
+	nlohmann::json const& value,
+	std::string const& animPath,
+	float atlasWidth,
+	float atlasHeight,
+	PDAnimationFrame* result,
+	std::string* error)
+{
+	if (not value.is_object() or not value.contains("rect"))
+	{
+		*error = animPath + " has a frame with no rect";
+
+		return false;
+	}
+
+	nlohmann::json const& rect = value["rect"];
+
+	if (not rect.is_array() or rect.size() != 4)
+	{
+		*error = animPath + " has a frame with a malformed rect";
+
+		return false;
+	}
+
+	for (nlohmann::json const& number : rect)
+	{
+		if (not finiteNumber(number))
+		{
+			*error = animPath + " has a frame with an invalid rect number";
+
+			return false;
+		}
+	}
+
+	float const x = rect[0].get<float>();
+	float const y = rect[1].get<float>();
+	float const width = rect[2].get<float>();
+	float const height = rect[3].get<float>();
+
+	if (width <= 0.0f or height <= 0.0f)
+	{
+		*error = animPath + " has a frame with a non-positive size";
+
+		return false;
+	}
+
+	if (x < 0.0f or y < 0.0f or x + width > atlasWidth or y + height > atlasHeight)
+	{
+		*error = animPath + " has a frame rect outside the atlas";
+
+		return false;
+	}
+
+	float durationSeconds = MinFrameSeconds;
+
+	if (value.contains("durationMs") and value["durationMs"].is_number())
+	{
+		if (not finiteNumber(value["durationMs"]))
+		{
+			*error = animPath + " has a frame with an invalid duration";
+
+			return false;
+		}
+
+		durationSeconds = value["durationMs"].get<float>() / 1000.0f;
+	}
+
+	result->u0 = x / atlasWidth;
+	result->v0 = y / atlasHeight;
+	result->u1 = (x + width) / atlasWidth;
+	result->v1 = (y + height) / atlasHeight;
+	result->width = width;
+	result->height = height;
+	result->durationSeconds = durationSeconds > MinFrameSeconds ? durationSeconds : MinFrameSeconds;
+
+	return true;
+}
+
 bool loadAnimationClip(std::string const& animPath, PDAnimationClip* result, std::string* error)
 {
 	assert(result != nullptr);
@@ -106,75 +184,14 @@ bool loadAnimationClip(std::string const& animPath, PDAnimationClip* result, std
 		return false;
 	}
 
-	for (nlohmann::json const& frameValue : document["frames"])
+	for (nlohmann::json const& value : document["frames"])
 	{
-		if (not frameValue.is_object() or not frameValue.contains("rect"))
-		{
-			*error = animPath + " has a frame with no rect";
-
-			return false;
-		}
-
-		nlohmann::json const& rect = frameValue["rect"];
-
-		if (not rect.is_array() or rect.size() != 4)
-		{
-			*error = animPath + " has a frame with a malformed rect";
-
-			return false;
-		}
-
-		for (nlohmann::json const& value : rect)
-		{
-			if (not finiteNumber(value))
-			{
-				*error = animPath + " has a frame with an invalid rect number";
-
-				return false;
-			}
-		}
-
-		float const x = rect[0].get<float>();
-		float const y = rect[1].get<float>();
-		float const width = rect[2].get<float>();
-		float const height = rect[3].get<float>();
-
-		if (width <= 0.0f or height <= 0.0f)
-		{
-			*error = animPath + " has a frame with a non-positive size";
-
-			return false;
-		}
-
-		if (x < 0.0f or y < 0.0f or x + width > atlasWidth or y + height > atlasHeight)
-		{
-			*error = animPath + " has a frame rect outside the atlas";
-
-			return false;
-		}
-
-		float durationSeconds = MinFrameSeconds;
-
-		if (frameValue.contains("durationMs") and frameValue["durationMs"].is_number())
-		{
-			if (not finiteNumber(frameValue["durationMs"]))
-			{
-				*error = animPath + " has a frame with an invalid duration";
-
-				return false;
-			}
-
-			durationSeconds = frameValue["durationMs"].get<float>() / 1000.0f;
-		}
-
 		PDAnimationFrame frame;
-		frame.u0 = x / atlasWidth;
-		frame.v0 = y / atlasHeight;
-		frame.u1 = (x + width) / atlasWidth;
-		frame.v1 = (y + height) / atlasHeight;
-		frame.width = width;
-		frame.height = height;
-		frame.durationSeconds = durationSeconds > MinFrameSeconds ? durationSeconds : MinFrameSeconds;
+
+		if (not parseFrame(value, animPath, atlasWidth, atlasHeight, &frame, error))
+		{
+			return false;
+		}
 
 		result->frames.push_back(frame);
 	}

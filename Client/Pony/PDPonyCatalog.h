@@ -19,7 +19,7 @@ struct PDPonyGroup
 class PDPonyCatalog
 {
 public:
-	void load(std::string const& packsRoot);
+	void load(std::string const& folder);
 
 	std::vector<PDPonyGroup> const& groups() const
 	{

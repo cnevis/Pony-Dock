@@ -2,8 +2,6 @@
 
 #include <string>
 
-std::string ponyPackOverrideRoot();
-std::string ponyPackOverridePath(std::string const& packPath);
 std::string ponyPackDocumentPath(std::string const& packPath);
 bool ponyPackOverrideExists(std::string const& packPath);
 

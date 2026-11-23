@@ -149,6 +149,7 @@ static nlohmann::json writeSettings(PDSettings const& value)
 static bool readLegacySettings(nlohmann::json const& modules, PDSettingsSnapshot* snapshot)
 {
 	assert(snapshot != nullptr);
+
 	nlohmann::json const core = modules.value("core.lua", nlohmann::json::object());
 	nlohmann::json const interactions = modules.value("interactions.lua", nlohmann::json::object());
 	nlohmann::json const coreValues = core.value("settings", nlohmann::json::object());
@@ -204,6 +205,74 @@ static bool readLegacySettings(nlohmann::json const& modules, PDSettingsSnapshot
 	return true;
 }
 
+static std::vector<PDSceneEntry> readScene(nlohmann::json const& nodes)
+{
+	std::vector<PDSceneEntry> scene;
+
+	if (not nodes.is_array())
+	{
+		return scene;
+	}
+
+	for (nlohmann::json const& node : nodes)
+	{
+		if (not node.is_object())
+		{
+			continue;
+		}
+
+		PDSceneEntry entry;
+		entry.id = node.value("id", std::string());
+		entry.quantity = std::clamp(node.value("quantity", 1), 1, 99);
+
+		if (not entry.id.empty())
+		{
+			scene.push_back(std::move(entry));
+		}
+	}
+
+	return scene;
+}
+
+static bool replaceFile(std::filesystem::path const& target, std::string const& text)
+{
+	std::error_code error;
+
+	if (not target.parent_path().empty())
+	{
+		std::filesystem::create_directories(target.parent_path(), error);
+
+		if (error)
+		{
+			return false;
+		}
+	}
+
+	std::filesystem::path temporary = target;
+	temporary += ".tmp";
+
+	{
+		std::ofstream stream(temporary, std::ios::binary);
+
+		if (not stream)
+		{
+			return false;
+		}
+
+		stream << text;
+		stream.close();
+
+		if (not stream)
+		{
+			return false;
+		}
+	}
+
+	std::filesystem::rename(temporary, target, error);
+
+	return not error;
+}
+
 PDSettingsStore::PDSettingsStore()
 	: m_path(resolveSettingsPath())
 {
@@ -211,38 +280,38 @@ PDSettingsStore::PDSettingsStore()
 
 bool PDSettingsStore::load()
 {
-	return readFrom(m_path);
+	return read(m_path);
 }
 
 bool PDSettingsStore::save() const
 {
-	return writeTo(m_path);
+	return write(m_path);
 }
 
-bool PDSettingsStore::exportTo(std::string const& path) const
+bool PDSettingsStore::exportFile(std::string const& path) const
 {
-	return writeTo(path);
+	return write(path);
 }
 
-bool PDSettingsStore::importFrom(std::string const& path)
+bool PDSettingsStore::importFile(std::string const& path)
 {
-	PDSettingsStore imported;
+	PDSettingsStore source;
 
-	if (not imported.readFrom(path))
+	if (not source.read(path))
 	{
 		return false;
 	}
 
-	if (not imported.writeTo(m_path))
+	if (not source.write(m_path))
 	{
 		return false;
 	}
 
 	std::unique_lock<std::shared_mutex> const lock(m_mutex);
-	m_defaults = imported.m_defaults;
-	m_packs = std::move(imported.m_packs);
-	m_app = std::move(imported.m_app);
-	m_scene = std::move(imported.m_scene);
+	m_defaults = source.m_defaults;
+	m_packs = std::move(source.m_packs);
+	m_app = std::move(source.m_app);
+	m_scene = std::move(source.m_scene);
 	m_version.fetch_add(1, std::memory_order_release);
 
 	return true;
@@ -258,18 +327,18 @@ PDSettings PDSettingsStore::value(std::string const& packId) const
 
 void PDSettingsStore::setValue(std::string const& packId, PDSettings const& value)
 {
-	PDSettings stored = value;
-	sanitizeSettings(&stored);
+	PDSettings copy = value;
+	sanitizeSettings(&copy);
 
 	std::unique_lock<std::shared_mutex> const lock(m_mutex);
 
 	if (packId.empty())
 	{
-		m_defaults = stored;
+		m_defaults = copy;
 	}
 	else
 	{
-		m_packs[packId] = stored;
+		m_packs[packId] = copy;
 	}
 
 	m_version.fetch_add(1, std::memory_order_release);
@@ -353,7 +422,7 @@ void PDSettingsStore::setScene(std::vector<PDSceneEntry> const& entries)
 	m_scene = entries;
 }
 
-bool PDSettingsStore::readFrom(std::string const& path)
+bool PDSettingsStore::read(std::string const& path)
 {
 	std::ifstream stream(nativePath(path), std::ios::binary);
 
@@ -375,27 +444,7 @@ bool PDSettingsStore::readFrom(std::string const& path)
 
 	try
 	{
-		nlohmann::json const staged = document.value("scene", nlohmann::json::array());
-
-		if (staged.is_array())
-		{
-			for (nlohmann::json const& node : staged)
-			{
-				if (not node.is_object())
-				{
-					continue;
-				}
-
-				PDSceneEntry entry;
-				entry.id = node.value("id", std::string());
-				entry.quantity = std::clamp(node.value("quantity", 1), 1, 99);
-
-				if (not entry.id.empty())
-				{
-					scene.push_back(std::move(entry));
-				}
-			}
-		}
+		scene = readScene(document.value("scene", nlohmann::json::array()));
 
 		nlohmann::json const flags = document.value("app", nlohmann::json::object());
 
@@ -457,7 +506,7 @@ bool PDSettingsStore::readFrom(std::string const& path)
 	return true;
 }
 
-bool PDSettingsStore::writeTo(std::string const& path) const
+bool PDSettingsStore::write(std::string const& path) const
 {
 	nlohmann::json document;
 
@@ -494,40 +543,5 @@ bool PDSettingsStore::writeTo(std::string const& path) const
 		return false;
 	}
 
-	std::filesystem::path const target = nativePath(path);
-	std::error_code error;
-
-	if (not target.parent_path().empty())
-	{
-		std::filesystem::create_directories(target.parent_path(), error);
-
-		if (error)
-		{
-			return false;
-		}
-	}
-
-	std::filesystem::path temporary = target;
-	temporary += ".tmp";
-
-	{
-		std::ofstream stream(temporary, std::ios::binary);
-
-		if (not stream)
-		{
-			return false;
-		}
-
-		stream << text;
-		stream.close();
-
-		if (not stream)
-		{
-			return false;
-		}
-	}
-
-	std::filesystem::rename(temporary, target, error);
-
-	return not error;
+	return replaceFile(nativePath(path), text);
 }

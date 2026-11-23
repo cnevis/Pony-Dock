@@ -23,9 +23,9 @@
 static nlohmann::json const& behaviorField(nlohmann::json const& behavior, char const* key)
 {
 	static nlohmann::json const missing;
-	nlohmann::json::const_iterator const found = behavior.find(key);
+	nlohmann::json::const_iterator const it = behavior.find(key);
 
-	return found != behavior.end() ? *found : missing;
+	return it != behavior.end() ? *it : missing;
 }
 
 static std::string fieldString(nlohmann::json const& behavior, char const* key)
@@ -49,18 +49,23 @@ static bool fieldBool(nlohmann::json const& behavior, char const* key)
 	return value.is_boolean() and value.get<bool>();
 }
 
-static int fieldGroup(nlohmann::json const& behavior)
+static int fieldInt(nlohmann::json const& behavior, char const* key)
 {
-	nlohmann::json const& value = behaviorField(behavior, "group");
+	nlohmann::json const& value = behaviorField(behavior, key);
 
 	if (not value.is_number_integer())
 	{
 		return 0;
 	}
 
-	double const group = value.get<double>();
+	double const number = value.get<double>();
 
-	return group >= std::numeric_limits<int>::min() and group <= std::numeric_limits<int>::max() ? (int)group : 0;
+	if (number < std::numeric_limits<int>::min() or number > std::numeric_limits<int>::max())
+	{
+		return 0;
+	}
+
+	return (int)number;
 }
 
 static double fieldDuration(nlohmann::json const& behavior, char const* key)
@@ -73,6 +78,14 @@ static double fieldDuration(nlohmann::json const& behavior, char const* key)
 	}
 
 	return fieldNumber(duration, key);
+}
+
+static nlohmann::json const& documentBehaviors(nlohmann::json const& document)
+{
+	static nlohmann::json const empty = nlohmann::json::array();
+	nlohmann::json::const_iterator const it = document.find("behaviors");
+
+	return it != document.end() and it->is_array() ? *it : empty;
 }
 
 static bool readDocument(std::string const& path, nlohmann::json* result)
@@ -116,9 +129,65 @@ static bool readDocument(std::string const& path, nlohmann::json* result)
 	return true;
 }
 
-PDBehaviorEditor::PDBehaviorEditor(PDMainApplication& app, PDImGui& host, PDDiagnostics& diagnostics)
+static bool matchReference(nlohmann::json* object, char const* key, std::string const& id, bool apply)
+{
+	assert(object != nullptr);
+
+	if (fieldString(*object, key) != id)
+	{
+		return false;
+	}
+
+	if (apply)
+	{
+		(*object)[key] = nullptr;
+	}
+
+	return true;
+}
+
+static bool matchListReference(nlohmann::json* list, std::string const& id, bool apply)
+{
+	assert(list != nullptr);
+
+	nlohmann::json remaining = nlohmann::json::array();
+	bool match = false;
+
+	for (nlohmann::json const& value : *list)
+	{
+		if (value.is_string() and value.get<std::string>() == id)
+		{
+			match = true;
+		}
+		else
+		{
+			remaining.push_back(value);
+		}
+	}
+
+	if (match and apply)
+	{
+		*list = std::move(remaining);
+	}
+
+	return match;
+}
+
+static bool combo(char const* id, int* current, std::vector<std::string> const& labels)
+{
+	std::vector<char const*> items;
+
+	for (std::string const& label : labels)
+	{
+		items.push_back(label.c_str());
+	}
+
+	return ImGui::Combo(id, current, items.data(), (int)items.size());
+}
+
+PDBehaviorEditor::PDBehaviorEditor(PDMainApplication& app, PDImGui& imgui, PDDiagnostics& diagnostics)
 	: m_app(app),
-	  m_host(host),
+	  m_imgui(imgui),
 	  m_diagnostics(diagnostics)
 {
 	m_movements = {
@@ -155,7 +224,7 @@ bool PDBehaviorEditor::open(std::string const& packPath, std::string const& disp
 	m_expanded = -1;
 	m_resetOpen = false;
 	m_deleteOpen = false;
-	m_deleteIndex = -1;
+	m_deleteIdx = -1;
 	m_deleteReferences.clear();
 	m_search[0] = '\0';
 	m_status.clear();
@@ -178,23 +247,19 @@ void PDBehaviorEditor::close()
 
 nlohmann::json const& PDBehaviorEditor::behaviors() const
 {
-	static nlohmann::json const empty = nlohmann::json::array();
-	nlohmann::json::const_iterator const found = m_document.find("behaviors");
-
-	return found != m_document.end() and found->is_array() ? *found : empty;
+	return documentBehaviors(m_document);
 }
 
 void PDBehaviorEditor::rebuildIndex()
 {
-	int const previousMode = m_mode;
+	rebuildAnimations();
+	rebuildBehaviors();
+	rebuildModes();
+}
 
-	m_modes.clear();
-	m_linkTargets.clear();
-	m_behaviorIds.clear();
+void PDBehaviorEditor::rebuildAnimations()
+{
 	m_animations.clear();
-	m_baseByIndex.clear();
-
-	nlohmann::json const& pool = behaviors();
 
 	nlohmann::json::const_iterator const animations = m_document.find("animations");
 
@@ -217,83 +282,79 @@ void PDBehaviorEditor::rebuildIndex()
 	}
 
 	std::sort(m_animations.begin(), m_animations.end());
+}
 
-	for (nlohmann::json const& entry : pool)
+void PDBehaviorEditor::rebuildBehaviors()
+{
+	nlohmann::json const& base = documentBehaviors(m_base);
+
+	m_linkTargets.clear();
+	m_behaviorIds.clear();
+	m_baseIdx.clear();
+
+	for (nlohmann::json const& entry : behaviors())
 	{
 		std::string const link = fieldString(entry, "linkedBehavior");
+		std::string const id = fieldString(entry, "id");
+		std::size_t match = NoBaseIdx;
 
 		if (not link.empty())
 		{
 			m_linkTargets.push_back(link);
 		}
 
-		m_behaviorIds.push_back(fieldString(entry, "id"));
-	}
-
-	nlohmann::json::const_iterator const basePool = m_base.find("behaviors");
-
-	for (std::string const& id : m_behaviorIds)
-	{
-		std::size_t match = NoBaseIndex;
-
-		if (basePool != m_base.end() and basePool->is_array())
+		for (std::size_t i = 0; i < base.size(); i += 1)
 		{
-			for (std::size_t i = 0; i < basePool->size(); i += 1)
+			if (fieldString(base[i], "id") == id)
 			{
-				if (fieldString((*basePool)[i], "id") == id)
-				{
-					match = i;
+				match = i;
 
-					break;
-				}
+				break;
 			}
 		}
 
-		m_baseByIndex.push_back(match);
+		m_behaviorIds.push_back(id);
+		m_baseIdx.push_back(match);
 	}
 
 	std::sort(m_linkTargets.begin(), m_linkTargets.end());
 	m_linkTargets.erase(std::unique(m_linkTargets.begin(), m_linkTargets.end()), m_linkTargets.end());
+}
 
-	nlohmann::json::const_iterator const declared = m_document.find("behaviorGroups");
+void PDBehaviorEditor::rebuildModes()
+{
+	int const previousMode = m_mode;
 
-	if (declared != m_document.end() and declared->is_array())
+	m_modes.clear();
+
+	nlohmann::json::const_iterator const groups = m_document.find("behaviorGroups");
+
+	if (groups != m_document.end() and groups->is_array())
 	{
-		for (nlohmann::json const& entry : *declared)
+		for (nlohmann::json const& entry : *groups)
 		{
 			if (not entry.is_object())
 			{
 				continue;
 			}
 
+			int const id = fieldInt(entry, "id");
+
+			if (id == 0 or modeName(id) != nullptr)
+			{
+				continue;
+			}
+
 			PDBehaviorMode mode;
-			nlohmann::json const& id = behaviorField(entry, "id");
-
-			if (not id.is_number_integer())
-			{
-				continue;
-			}
-
-			double const value = id.get<double>();
-
-			if (value < std::numeric_limits<int>::min() or value > std::numeric_limits<int>::max())
-			{
-				continue;
-			}
-
-			mode.id = (int)value;
+			mode.id = id;
 			mode.name = fieldString(entry, "name");
-
-			if (mode.id != 0 and modeName(mode.id) == nullptr)
-			{
-				m_modes.push_back(std::move(mode));
-			}
+			m_modes.push_back(std::move(mode));
 		}
 	}
 
-	for (nlohmann::json const& behavior : pool)
+	for (nlohmann::json const& behavior : behaviors())
 	{
-		int const group = fieldGroup(behavior);
+		int const group = fieldInt(behavior, "group");
 
 		if (group != 0 and modeName(group) == nullptr)
 		{
@@ -316,29 +377,30 @@ void PDBehaviorEditor::rebuildIndex()
 	}
 }
 
-nlohmann::json& PDBehaviorEditor::behavior(std::size_t index)
+nlohmann::json& PDBehaviorEditor::behavior(std::size_t idx)
 {
-	return m_document["behaviors"][index];
+	return m_document["behaviors"][idx];
 }
 
-nlohmann::json const* PDBehaviorEditor::baseValue(std::size_t index, char const* key) const
+nlohmann::json const* PDBehaviorEditor::baseValue(std::size_t idx, char const* key) const
 {
-	if (index >= m_baseByIndex.size() or m_baseByIndex[index] == NoBaseIndex)
+	if (idx >= m_baseIdx.size())
 	{
 		return nullptr;
 	}
 
-	nlohmann::json::const_iterator const basePool = m_base.find("behaviors");
+	nlohmann::json const& base = documentBehaviors(m_base);
+	std::size_t const baseIdx = m_baseIdx[idx];
 
-	if (basePool == m_base.end() or not basePool->is_array())
+	if (baseIdx >= base.size())
 	{
 		return nullptr;
 	}
 
-	nlohmann::json const& entry = (*basePool)[m_baseByIndex[index]];
-	nlohmann::json::const_iterator const found = entry.find(key);
+	nlohmann::json const& entry = base[baseIdx];
+	nlohmann::json::const_iterator const it = entry.find(key);
 
-	return found != entry.end() ? &(*found) : nullptr;
+	return it != entry.end() ? &(*it) : nullptr;
 }
 
 void PDBehaviorEditor::commit()
@@ -360,17 +422,17 @@ void PDBehaviorEditor::commit()
 	m_app.reloadPack(m_packPath);
 }
 
-void PDBehaviorEditor::revertField(std::size_t index, char const* key)
+void PDBehaviorEditor::revertField(std::size_t idx, char const* key)
 {
-	nlohmann::json const* const base = baseValue(index, key);
+	nlohmann::json const* const base = baseValue(idx, key);
 
 	if (base == nullptr)
 	{
-		behavior(index).erase(key);
+		behavior(idx).erase(key);
 	}
 	else
 	{
-		behavior(index)[key] = *base;
+		behavior(idx)[key] = *base;
 	}
 
 	commit();
@@ -418,16 +480,16 @@ bool PDBehaviorEditor::isLinkTarget(std::string const& id) const
 	return std::find(m_linkTargets.begin(), m_linkTargets.end(), id) != m_linkTargets.end();
 }
 
-bool PDBehaviorEditor::eligibleInMode(std::size_t index, int mode) const
+bool PDBehaviorEditor::eligibleInMode(std::size_t idx, int mode) const
 {
-	nlohmann::json const& behavior = behaviors()[index];
+	nlohmann::json const& behavior = behaviors()[idx];
 
 	if (fieldNumber(behavior, "chance") <= 0.0 or fieldBool(behavior, "skip"))
 	{
 		return false;
 	}
 
-	int const group = fieldGroup(behavior);
+	int const group = fieldInt(behavior, "group");
 
 	return group == 0 or group == mode;
 }
@@ -449,11 +511,11 @@ double PDBehaviorEditor::eligibleTotal(int mode) const
 
 PDBehaviorPreview const* PDBehaviorEditor::preview(std::string const& animation)
 {
-	std::unordered_map<std::string, PDBehaviorPreview>::const_iterator const cached = m_previews.find(animation);
+	std::unordered_map<std::string, PDBehaviorPreview>::const_iterator const it = m_previews.find(animation);
 
-	if (cached != m_previews.end())
+	if (it != m_previews.end())
 	{
-		return cached->second.valid ? &cached->second : nullptr;
+		return it->second.valid ? &it->second : nullptr;
 	}
 
 	if (m_previewBudget <= 0)
@@ -463,52 +525,56 @@ PDBehaviorPreview const* PDBehaviorEditor::preview(std::string const& animation)
 
 	m_previewBudget -= 1;
 
-	PDBehaviorPreview entry;
-	nlohmann::json::const_iterator const animations = m_document.find("animations");
-	std::string relative;
-
-	if (animations != m_document.end() and animations->is_object())
-	{
-		nlohmann::json::const_iterator const found = animations->find(animation);
-
-		if (found != animations->end() and found->is_object())
-		{
-			relative = fieldString(*found, "right");
-
-			if (relative.empty())
-			{
-				relative = fieldString(*found, "left");
-			}
-		}
-	}
+	PDBehaviorPreview& entry = m_previews[animation];
+	std::string const relative = animationFile(animation);
 
 	if (relative.empty())
 	{
-		m_previews.emplace(animation, std::move(entry));
-
 		return nullptr;
 	}
 
 	std::string const path = pathString((nativePath(m_packPath) / nativePath(relative)).lexically_normal());
-
 	PDAnimationClip clip;
 	std::string error;
 
-	if (loadAnimationClip(path, &clip, &error) and not clip.frames.empty())
+	if (not loadAnimationClip(path, &clip, &error) or clip.frames.empty())
 	{
-		entry.texture = PDTexture(m_host.device(), clip.atlasPath);
-		entry.u0 = clip.frames.front().u0;
-		entry.v0 = clip.frames.front().v0;
-		entry.u1 = clip.frames.front().u1;
-		entry.v1 = clip.frames.front().v1;
-		entry.width = clip.frames.front().width;
-		entry.height = clip.frames.front().height;
-		entry.valid = entry.texture.valid();
+		return nullptr;
 	}
 
-	PDBehaviorPreview const& stored = m_previews.emplace(animation, std::move(entry)).first->second;
+	PDAnimationFrame const& frame = clip.frames.front();
 
-	return stored.valid ? &stored : nullptr;
+	entry.texture = PDTexture(m_imgui.device(), clip.atlasPath);
+	entry.u0 = frame.u0;
+	entry.v0 = frame.v0;
+	entry.u1 = frame.u1;
+	entry.v1 = frame.v1;
+	entry.width = frame.width;
+	entry.height = frame.height;
+	entry.valid = entry.texture.valid();
+
+	return entry.valid ? &entry : nullptr;
+}
+
+std::string PDBehaviorEditor::animationFile(std::string const& animation) const
+{
+	nlohmann::json::const_iterator const animations = m_document.find("animations");
+
+	if (animations == m_document.end() or not animations->is_object())
+	{
+		return std::string();
+	}
+
+	nlohmann::json::const_iterator const it = animations->find(animation);
+
+	if (it == animations->end() or not it->is_object())
+	{
+		return std::string();
+	}
+
+	std::string const right = fieldString(*it, "right");
+
+	return right.empty() ? fieldString(*it, "left") : right;
 }
 
 nlohmann::json& PDBehaviorEditor::behaviorArray()
@@ -538,11 +604,11 @@ std::string PDBehaviorEditor::uniqueId(std::string const& base) const
 
 std::vector<std::string> PDBehaviorEditor::collectReferences(std::string const& id, bool apply)
 {
-	std::vector<std::string> found;
+	std::vector<std::string> refs;
 
 	if (id.empty())
 	{
-		return found;
+		return refs;
 	}
 
 	for (nlohmann::json& entry : behaviorArray())
@@ -554,14 +620,9 @@ std::vector<std::string> PDBehaviorEditor::collectReferences(std::string const& 
 
 		std::string const owner = fieldString(entry, "id");
 
-		if (fieldString(entry, "linkedBehavior") == id)
+		if (matchReference(&entry, "linkedBehavior", id, apply))
 		{
-			found.push_back("Play next on '" + owner + "'");
-
-			if (apply)
-			{
-				entry["linkedBehavior"] = nullptr;
-			}
+			refs.push_back("Play next on '" + owner + "'");
 		}
 
 		nlohmann::json::iterator const follow = entry.find("follow");
@@ -571,24 +632,14 @@ std::vector<std::string> PDBehaviorEditor::collectReferences(std::string const& 
 			continue;
 		}
 
-		if (fieldString(*follow, "movingBehavior") == id)
+		if (matchReference(&*follow, "movingBehavior", id, apply))
 		{
-			found.push_back("Follow moving behavior on '" + owner + "'");
-
-			if (apply)
-			{
-				(*follow)["movingBehavior"] = nullptr;
-			}
+			refs.push_back("Follow moving behavior on '" + owner + "'");
 		}
 
-		if (fieldString(*follow, "stoppedBehavior") == id)
+		if (matchReference(&*follow, "stoppedBehavior", id, apply))
 		{
-			found.push_back("Follow stopped behavior on '" + owner + "'");
-
-			if (apply)
-			{
-				(*follow)["stoppedBehavior"] = nullptr;
-			}
+			refs.push_back("Follow stopped behavior on '" + owner + "'");
 		}
 	}
 
@@ -598,16 +649,9 @@ std::vector<std::string> PDBehaviorEditor::collectReferences(std::string const& 
 	{
 		for (nlohmann::json& effect : *effects)
 		{
-			if (not effect.is_object() or fieldString(effect, "behavior") != id)
+			if (effect.is_object() and matchReference(&effect, "behavior", id, apply))
 			{
-				continue;
-			}
-
-			found.push_back("Effect '" + fieldString(effect, "id") + "'");
-
-			if (apply)
-			{
-				effect["behavior"] = nullptr;
+				refs.push_back("Effect '" + fieldString(effect, "id") + "'");
 			}
 		}
 	}
@@ -616,7 +660,7 @@ std::vector<std::string> PDBehaviorEditor::collectReferences(std::string const& 
 
 	if (interactions == m_document.end() or not interactions->is_array())
 	{
-		return found;
+		return refs;
 	}
 
 	for (nlohmann::json& interaction : *interactions)
@@ -633,35 +677,13 @@ std::vector<std::string> PDBehaviorEditor::collectReferences(std::string const& 
 			continue;
 		}
 
-		nlohmann::json remaining = nlohmann::json::array();
-		bool referenced = false;
-
-		for (nlohmann::json const& value : *list)
+		if (matchListReference(&*list, id, apply))
 		{
-			if (value.is_string() and value.get<std::string>() == id)
-			{
-				referenced = true;
-			}
-			else
-			{
-				remaining.push_back(value);
-			}
-		}
-
-		if (not referenced)
-		{
-			continue;
-		}
-
-		found.push_back("Interaction '" + fieldString(interaction, "id") + "'");
-
-		if (apply)
-		{
-			*list = std::move(remaining);
+			refs.push_back("Interaction '" + fieldString(interaction, "id") + "'");
 		}
 	}
 
-	return found;
+	return refs;
 }
 
 void PDBehaviorEditor::addBehavior()
@@ -703,33 +725,33 @@ void PDBehaviorEditor::addBehavior()
 	commit();
 }
 
-void PDBehaviorEditor::duplicateBehavior(std::size_t index)
+void PDBehaviorEditor::duplicateBehavior(std::size_t idx)
 {
 	nlohmann::json& pool = behaviorArray();
 
-	if (index >= pool.size())
+	if (idx >= pool.size())
 	{
 		return;
 	}
 
-	nlohmann::json entry = pool[index];
-	entry["id"] = uniqueId(fieldString(pool[index], "id"));
-	entry["name"] = fieldString(pool[index], "name") + " copy";
+	nlohmann::json entry = pool[idx];
+	entry["id"] = uniqueId(fieldString(pool[idx], "id"));
+	entry["name"] = fieldString(pool[idx], "name") + " copy";
 
 	pool.push_back(std::move(entry));
 	m_expanded = (int)pool.size() - 1;
 	commit();
 }
 
-void PDBehaviorEditor::requestDelete(std::size_t index)
+void PDBehaviorEditor::requestDelete(std::size_t idx)
 {
-	if (index >= behaviors().size())
+	if (idx >= behaviors().size())
 	{
 		return;
 	}
 
-	m_deleteIndex = (int)index;
-	m_deleteReferences = collectReferences(fieldString(behaviors()[index], "id"), false);
+	m_deleteIdx = (int)idx;
+	m_deleteReferences = collectReferences(fieldString(behaviors()[idx], "id"), false);
 	m_deleteOpen = true;
 }
 
@@ -746,7 +768,7 @@ void PDBehaviorEditor::drawDeleteModal()
 		return;
 	}
 
-	if (m_deleteIndex < 0 or m_deleteIndex >= (int)behaviors().size())
+	if (m_deleteIdx < 0 or m_deleteIdx >= (int)behaviors().size())
 	{
 		ImGui::CloseCurrentPopup();
 		endModal();
@@ -754,8 +776,8 @@ void PDBehaviorEditor::drawDeleteModal()
 		return;
 	}
 
-	std::size_t const index = (std::size_t)m_deleteIndex;
-	std::string const id = fieldString(behaviors()[index], "id");
+	std::size_t const idx = (std::size_t)m_deleteIdx;
+	std::string const id = fieldString(behaviors()[idx], "id");
 
 	ImGui::PushStyleColor(ImGuiCol_Text, PDTheme::TextDim);
 	ImGui::TextWrapped("Delete '%s' from %s?", id.c_str(), m_displayName.c_str());
@@ -791,9 +813,9 @@ void PDBehaviorEditor::drawDeleteModal()
 	if (ImGui::Button("Delete", ImVec2(110.0f, 32.0f)))
 	{
 		collectReferences(id, true);
-		behaviorArray().erase(index);
+		behaviorArray().erase(idx);
 		m_expanded = -1;
-		m_deleteIndex = -1;
+		m_deleteIdx = -1;
 		commit();
 		ImGui::CloseCurrentPopup();
 	}
@@ -816,17 +838,17 @@ void PDBehaviorEditor::drawFieldLabel(char const* label)
 	ImGui::SetNextItemWidth(-(ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x));
 }
 
-void PDBehaviorEditor::drawRevertMarker(std::size_t index, char const* key)
+void PDBehaviorEditor::drawRevertMarker(std::size_t idx, char const* key)
 {
-	nlohmann::json const* const base = baseValue(index, key);
-	nlohmann::json const& current = behaviorField(behaviors()[index], key);
+	nlohmann::json const* const base = baseValue(idx, key);
+	nlohmann::json const& current = behaviorField(behaviors()[idx], key);
 	bool const present = not current.is_null();
-	bool const modified = base == nullptr ? present : (not present or *base != current);
+	bool const differs = base == nullptr ? present : (not present or *base != current);
 	float const size = ImGui::GetFrameHeight();
 
 	ImGui::SameLine();
 
-	if (not modified)
+	if (not differs)
 	{
 		ImGui::Dummy(ImVec2(size, size));
 
@@ -835,7 +857,7 @@ void PDBehaviorEditor::drawRevertMarker(std::size_t index, char const* key)
 
 	if (ImGui::Button("x", ImVec2(size, size)))
 	{
-		revertField(index, key);
+		revertField(idx, key);
 	}
 
 	if (ImGui::IsItemHovered())
@@ -844,16 +866,16 @@ void PDBehaviorEditor::drawRevertMarker(std::size_t index, char const* key)
 	}
 }
 
-void PDBehaviorEditor::drawNameField(std::size_t index)
+void PDBehaviorEditor::drawNameField(std::size_t idx)
 {
 	ImGui::PushID("name");
 	drawFieldLabel("Name");
 
-	std::string value = fieldString(behaviors()[index], "name");
+	std::string value = fieldString(behaviors()[idx], "name");
 
 	if (ImGui::InputText("##v", &value))
 	{
-		behavior(index)["name"] = value;
+		behavior(idx)["name"] = value;
 	}
 
 	if (ImGui::IsItemDeactivatedAfterEdit())
@@ -861,20 +883,20 @@ void PDBehaviorEditor::drawNameField(std::size_t index)
 		commit();
 	}
 
-	drawRevertMarker(index, "name");
+	drawRevertMarker(idx, "name");
 	ImGui::PopID();
 }
 
-void PDBehaviorEditor::drawChanceField(std::size_t index)
+void PDBehaviorEditor::drawChanceField(std::size_t idx)
 {
 	ImGui::PushID("chance");
 	drawFieldLabel("Chance");
 
-	double value = fieldNumber(behaviors()[index], "chance");
+	double value = fieldNumber(behaviors()[idx], "chance");
 
 	if (ImGui::InputDouble("##v", &value, 0.0, 0.0, "%.6g"))
 	{
-		behavior(index)["chance"] = value < 0.0 ? 0.0 : value;
+		behavior(idx)["chance"] = value < 0.0 ? 0.0 : value;
 	}
 
 	if (ImGui::IsItemDeactivatedAfterEdit())
@@ -882,20 +904,20 @@ void PDBehaviorEditor::drawChanceField(std::size_t index)
 		commit();
 	}
 
-	drawRevertMarker(index, "chance");
+	drawRevertMarker(idx, "chance");
 	ImGui::PopID();
 }
 
-void PDBehaviorEditor::drawSpeedField(std::size_t index)
+void PDBehaviorEditor::drawSpeedField(std::size_t idx)
 {
 	ImGui::PushID("speed");
 	drawFieldLabel("Speed (px/s)");
 
-	double value = fieldNumber(behaviors()[index], "speedPxPerSec");
+	double value = fieldNumber(behaviors()[idx], "speedPxPerSec");
 
 	if (ImGui::InputDouble("##v", &value, 0.0, 0.0, "%.6g"))
 	{
-		behavior(index)["speedPxPerSec"] = value < 0.0 ? 0.0 : value;
+		behavior(idx)["speedPxPerSec"] = value < 0.0 ? 0.0 : value;
 	}
 
 	if (ImGui::IsItemDeactivatedAfterEdit())
@@ -903,19 +925,19 @@ void PDBehaviorEditor::drawSpeedField(std::size_t index)
 		commit();
 	}
 
-	drawRevertMarker(index, "speedPxPerSec");
+	drawRevertMarker(idx, "speedPxPerSec");
 	ImGui::PopID();
 }
 
-void PDBehaviorEditor::drawDurationField(std::size_t index)
+void PDBehaviorEditor::drawDurationField(std::size_t idx)
 {
 	ImGui::PushID("durationMs");
 	drawFieldLabel("Duration (ms)");
 
 	int values[2] =
 	{
-		(int)std::clamp(fieldDuration(behaviors()[index], "min"), 0.0, (double)std::numeric_limits<int>::max()),
-		(int)std::clamp(fieldDuration(behaviors()[index], "max"), 0.0, (double)std::numeric_limits<int>::max())
+		(int)std::clamp(fieldDuration(behaviors()[idx], "min"), 0.0, (double)std::numeric_limits<int>::max()),
+		(int)std::clamp(fieldDuration(behaviors()[idx], "max"), 0.0, (double)std::numeric_limits<int>::max())
 	};
 
 	if (ImGui::InputInt2("##v", values))
@@ -923,7 +945,7 @@ void PDBehaviorEditor::drawDurationField(std::size_t index)
 		values[0] = values[0] < 0 ? 0 : values[0];
 		values[1] = values[1] < values[0] ? values[0] : values[1];
 
-		behavior(index)["durationMs"] = nlohmann::json{{"min", values[0]}, {"max", values[1]}};
+		behavior(idx)["durationMs"] = nlohmann::json{{"min", values[0]}, {"max", values[1]}};
 	}
 
 	if (ImGui::IsItemDeactivatedAfterEdit())
@@ -931,20 +953,20 @@ void PDBehaviorEditor::drawDurationField(std::size_t index)
 		commit();
 	}
 
-	drawRevertMarker(index, "durationMs");
+	drawRevertMarker(idx, "durationMs");
 	ImGui::PopID();
 }
 
-void PDBehaviorEditor::drawGroupField(std::size_t index)
+void PDBehaviorEditor::drawGroupField(std::size_t idx)
 {
 	ImGui::PushID("group");
 	drawFieldLabel("Mode");
 
 	std::vector<std::string> labels;
-	labels.push_back("0  -  any mode");
-
 	int current = 0;
-	int const group = fieldGroup(behaviors()[index]);
+	int const group = fieldInt(behaviors()[idx], "group");
+
+	labels.push_back("0  -  any mode");
 
 	for (std::size_t i = 0; i < m_modes.size(); i += 1)
 	{
@@ -963,44 +985,37 @@ void PDBehaviorEditor::drawGroupField(std::size_t index)
 		}
 	}
 
-	std::vector<char const*> items;
-
-	for (std::string const& label : labels)
+	if (combo("##v", &current, labels))
 	{
-		items.push_back(label.c_str());
-	}
-
-	if (ImGui::Combo("##v", &current, items.data(), (int)items.size()))
-	{
-		behavior(index)["group"] = current == 0 ? 0 : m_modes[(std::size_t)(current - 1)].id;
+		behavior(idx)["group"] = current == 0 ? 0 : m_modes[(std::size_t)(current - 1)].id;
 		commit();
 	}
 
-	drawRevertMarker(index, "group");
+	drawRevertMarker(idx, "group");
 	ImGui::PopID();
 }
 
-void PDBehaviorEditor::drawFlagField(std::size_t index, char const* key, char const* label)
+void PDBehaviorEditor::drawFlagField(std::size_t idx, char const* key, char const* label)
 {
 	ImGui::PushID(key);
 	ImGui::AlignTextToFramePadding();
 	ImGui::TextUnformatted(label);
 	ImGui::SameLine(LabelWidth);
 
-	bool value = fieldBool(behaviors()[index], key);
+	bool value = fieldBool(behaviors()[idx], key);
 
 	if (ImGui::Checkbox("##v", &value))
 	{
-		behavior(index)[key] = value;
+		behavior(idx)[key] = value;
 		commit();
 	}
 
-	drawRevertMarker(index, key);
+	drawRevertMarker(idx, key);
 	ImGui::PopID();
 }
 
 void PDBehaviorEditor::drawChoiceField(
-	std::size_t index,
+	std::size_t idx,
 	char const* key,
 	char const* label,
 	std::vector<std::string> const& options,
@@ -1009,15 +1024,14 @@ void PDBehaviorEditor::drawChoiceField(
 	ImGui::PushID(key);
 	drawFieldLabel(label);
 
-	std::string const value = fieldString(behaviors()[index], key);
+	std::string const value = fieldString(behaviors()[idx], key);
 	std::vector<std::string> labels;
+	int current = 0;
 
 	if (allowNone)
 	{
 		labels.push_back("(none)");
 	}
-
-	int current = 0;
 
 	for (std::string const& option : options)
 	{
@@ -1035,59 +1049,121 @@ void PDBehaviorEditor::drawChoiceField(
 		labels.push_back(value);
 	}
 
-	std::vector<char const*> items;
-
-	for (std::string const& entry : labels)
-	{
-		items.push_back(entry.c_str());
-	}
-
-	if (ImGui::Combo("##v", &current, items.data(), (int)items.size()))
+	if (combo("##v", &current, labels))
 	{
 		if (allowNone and current == 0)
 		{
-			behavior(index).erase(key);
+			behavior(idx).erase(key);
 		}
 		else
 		{
-			behavior(index)[key] = labels[(std::size_t)current];
+			behavior(idx)[key] = labels[(std::size_t)current];
 		}
 
 		commit();
 	}
 
-	drawRevertMarker(index, key);
+	drawRevertMarker(idx, key);
 	ImGui::PopID();
 }
 
-void PDBehaviorEditor::drawFields(std::size_t index)
+void PDBehaviorEditor::drawFields(std::size_t idx)
 {
-	drawNameField(index);
-	drawChoiceField(index, "animation", "Animation", m_animations, false);
-	drawChanceField(index);
-	drawDurationField(index);
-	drawChoiceField(index, "movement", "Movement", m_movements, false);
-	drawSpeedField(index);
-	drawChoiceField(index, "linkedBehavior", "Play next", m_behaviorIds, true);
-	drawGroupField(index);
+	drawNameField(idx);
+	drawChoiceField(idx, "animation", "Animation", m_animations, false);
+	drawChanceField(idx);
+	drawDurationField(idx);
+	drawChoiceField(idx, "movement", "Movement", m_movements, false);
+	drawSpeedField(idx);
+	drawChoiceField(idx, "linkedBehavior", "Play next", m_behaviorIds, true);
+	drawGroupField(idx);
 
 	ImGui::Dummy(ImVec2(0.0f, 6.0f));
 
-	drawFlagField(index, "skip", "Never pick at random");
-	drawFlagField(index, "special", "Extended behavior");
-	drawFlagField(index, "preventAnimationLoop", "Play animation once");
+	drawFlagField(idx, "skip", "Never pick at random");
+	drawFlagField(idx, "special", "Extended behavior");
+	drawFlagField(idx, "preventAnimationLoop", "Play animation once");
 }
 
-void PDBehaviorEditor::drawBehaviorRow(std::size_t index, double total)
+void PDBehaviorEditor::drawRowPreview(ImDrawList* drawList, ImVec2 thumbMin, std::string const& animation)
 {
-	nlohmann::json const& behavior = behaviors()[index];
+	PDBehaviorPreview const* const frame = preview(animation);
+
+	if (frame == nullptr)
+	{
+		return;
+	}
+
+	if (frame->width <= 0.0f or frame->height <= 0.0f)
+	{
+		return;
+	}
+
+	float scale = std::min(PreviewSize / frame->width, PreviewSize / frame->height);
+	scale = std::min(scale, 1.0f);
+
+	float const drawWidth = frame->width * scale;
+	float const drawHeight = frame->height * scale;
+	ImVec2 const imageMin(
+		thumbMin.x + (PreviewSize - drawWidth) * 0.5f,
+		thumbMin.y + (PreviewSize - drawHeight) * 0.5f);
+
+	drawList->AddImage(
+		reinterpret_cast<ImTextureID>(frame->texture.view()),
+		imageMin,
+		ImVec2(imageMin.x + drawWidth, imageMin.y + drawHeight),
+		ImVec2(frame->u0, frame->v0),
+		ImVec2(frame->u1, frame->v1));
+}
+
+std::string PDBehaviorEditor::rowChip(std::size_t idx, double total, ImVec4* result) const
+{
+	assert(result != nullptr);
+
+	nlohmann::json const& behavior = behaviors()[idx];
+	int const group = fieldInt(behavior, "group");
+
+	if (eligibleInMode(idx, m_mode))
+	{
+		double const share = total > 0.0 ? fieldNumber(behavior, "chance") / total * 100.0 : 0.0;
+		char chip[64];
+		std::snprintf(chip, sizeof(chip), "%.1f %%", share);
+		*result = PDTheme::White;
+
+		return chip;
+	}
+
+	if (group != 0 and group != m_mode)
+	{
+		*result = PDTheme::TextFaint;
+
+		return "other mode";
+	}
+
+	if (isLinkTarget(fieldString(behavior, "id")))
+	{
+		*result = PDTheme::TextDim;
+
+		return "link only";
+	}
+
+	*result = PDTheme::Stop;
+
+	return "unreachable";
+}
+
+void PDBehaviorEditor::drawBehaviorRow(std::size_t idx, double total)
+{
+	nlohmann::json const& behavior = behaviors()[idx];
 	std::string const id = fieldString(behavior, "id");
 	std::string const name = fieldString(behavior, "name");
+	int const group = fieldInt(behavior, "group");
 
-	PDRowCard const card = beginRowCard(ListRowHeight, m_expanded == (int)index);
+	PDRowCard const card = beginRowCard(ListRowHeight, m_expanded == (int)idx);
 
 	float const lineHeight = ImGui::GetTextLineHeight();
 	float const firstY = card.position.y + (ListRowHeight - lineHeight * 2.0f - 2.0f) * 0.5f;
+	float const secondY = firstY + lineHeight + 2.0f;
 	float const textX = card.position.x + 10.0f + PreviewSize + 12.0f;
 
 	ImDrawList* drawList = ImGui::GetWindowDrawList();
@@ -1098,26 +1174,7 @@ void PDBehaviorEditor::drawBehaviorRow(std::size_t index, double total)
 
 	if (ImGui::IsRectVisible(card.position, card.rectMax))
 	{
-		PDBehaviorPreview const* const frame = preview(fieldString(behavior, "animation"));
-
-		if (frame != nullptr and frame->width > 0.0f and frame->height > 0.0f)
-		{
-			float scale = std::min(PreviewSize / frame->width, PreviewSize / frame->height);
-			scale = std::min(scale, 1.0f);
-
-			float const drawWidth = frame->width * scale;
-			float const drawHeight = frame->height * scale;
-			ImVec2 const imageMin(
-				thumbMin.x + (PreviewSize - drawWidth) * 0.5f,
-				thumbMin.y + (PreviewSize - drawHeight) * 0.5f);
-
-			drawList->AddImage(
-				reinterpret_cast<ImTextureID>(frame->texture.view()),
-				imageMin,
-				ImVec2(imageMin.x + drawWidth, imageMin.y + drawHeight),
-				ImVec2(frame->u0, frame->v0),
-				ImVec2(frame->u1, frame->v1));
-		}
+		drawRowPreview(drawList, thumbMin, fieldString(behavior, "animation"));
 	}
 
 	drawList->AddText(
@@ -1135,58 +1192,26 @@ void PDBehaviorEditor::drawBehaviorRow(std::size_t index, double total)
 		fieldDuration(behavior, "max") / 1000.0,
 		fieldString(behavior, "movement").c_str());
 
-	drawList->AddText(
-		ImVec2(textX, firstY + lineHeight + 2.0f),
-		ImGui::GetColorU32(PDTheme::TextFaint),
-		subtitle);
+	drawList->AddText(ImVec2(textX, secondY), ImGui::GetColorU32(PDTheme::TextFaint), subtitle);
 
-	char chip[64];
-	ImVec4 chipColor = PDTheme::White;
+	ImVec4 chipColor;
+	std::string const chip = rowChip(idx, total, &chipColor);
+	float const chipWidth = ImGui::CalcTextSize(chip.c_str()).x;
+	float badgeRight = card.rectMax.x - 10.0f;
 
-	if (eligibleInMode(index, m_mode))
-	{
-		double const share = total > 0.0 ? fieldNumber(behavior, "chance") / total * 100.0 : 0.0;
-		std::snprintf(chip, sizeof(chip), "%.1f %%", share);
-	}
-	else
-	{
-		int const group = fieldGroup(behavior);
-
-		if (group != 0 and group != m_mode)
-		{
-			std::snprintf(chip, sizeof(chip), "other mode");
-			chipColor = PDTheme::TextFaint;
-		}
-		else if (isLinkTarget(id))
-		{
-			std::snprintf(chip, sizeof(chip), "link only");
-			chipColor = PDTheme::TextDim;
-		}
-		else
-		{
-			std::snprintf(chip, sizeof(chip), "unreachable");
-			chipColor = PDTheme::Stop;
-		}
-	}
-
-	float const chipWidth = ImGui::CalcTextSize(chip).x;
 	drawList->AddText(
 		ImVec2(card.rectMax.x - 10.0f - chipWidth, firstY),
 		ImGui::GetColorU32(chipColor),
-		chip);
-
-	int const group = fieldGroup(behavior);
-	float badgeRight = card.rectMax.x - 10.0f;
+		chip.c_str());
 
 	if (group != 0)
 	{
 		char const* const label = modeName(group);
-		char badge[64];
-		std::snprintf(badge, sizeof(badge), "%s", label != nullptr and *label != '\0' ? label : "grouped");
-
+		char const* const badge = label != nullptr and *label != '\0' ? label : "grouped";
 		float const badgeWidth = ImGui::CalcTextSize(badge).x;
+
 		drawList->AddText(
-			ImVec2(badgeRight - badgeWidth, firstY + lineHeight + 2.0f),
+			ImVec2(badgeRight - badgeWidth, secondY),
 			ImGui::GetColorU32(PDTheme::AccentText),
 			badge);
 
@@ -1197,14 +1222,14 @@ void PDBehaviorEditor::drawBehaviorRow(std::size_t index, double total)
 	{
 		float const extWidth = ImGui::CalcTextSize("EXT").x;
 		drawList->AddText(
-			ImVec2(badgeRight - extWidth, firstY + lineHeight + 2.0f),
+			ImVec2(badgeRight - extWidth, secondY),
 			ImGui::GetColorU32(PDTheme::TextDim),
 			"EXT");
 	}
 
 	if (card.clicked)
 	{
-		m_expanded = m_expanded == (int)index ? -1 : (int)index;
+		m_expanded = m_expanded == (int)idx ? -1 : (int)idx;
 	}
 
 	endRowCard(card, ListRowHeight, 4.0f);
@@ -1217,9 +1242,9 @@ void PDBehaviorEditor::drawDetail()
 		return;
 	}
 
-	std::size_t const index = (std::size_t)m_expanded;
-	std::string const id = fieldString(behaviors()[index], "id");
-	std::string const name = fieldString(behaviors()[index], "name");
+	std::size_t const idx = (std::size_t)m_expanded;
+	std::string const id = fieldString(behaviors()[idx], "id");
+	std::string const name = fieldString(behaviors()[idx], "name");
 
 	char title[256];
 	std::snprintf(
@@ -1242,8 +1267,8 @@ void PDBehaviorEditor::drawDetail()
 		ImGui::Dummy(ImVec2(0.0f, 8.0f));
 
 		ImGui::PushID(m_packPath.c_str());
-		ImGui::PushID((int)index);
-		drawFields(index);
+		ImGui::PushID((int)idx);
+		drawFields(idx);
 		ImGui::PopID();
 		ImGui::PopID();
 
@@ -1253,7 +1278,7 @@ void PDBehaviorEditor::drawDetail()
 
 		if (ImGui::Button("Duplicate", ImVec2(110.0f, 30.0f)))
 		{
-			duplicateBehavior(index);
+			duplicateBehavior(idx);
 		}
 
 		ImGui::SameLine();
@@ -1263,7 +1288,7 @@ void PDBehaviorEditor::drawDetail()
 
 		if (ImGui::Button("Delete", ImVec2(110.0f, 30.0f)))
 		{
-			requestDelete(index);
+			requestDelete(idx);
 		}
 
 		ImGui::PopStyleColor(3);
@@ -1313,56 +1338,46 @@ void PDBehaviorEditor::drawResetModal()
 	endModal();
 }
 
-bool PDBehaviorEditor::draw()
+void PDBehaviorEditor::drawModeCombo()
 {
-	bool back = false;
+	std::vector<std::string> labels;
+	int current = 0;
 
+	for (std::size_t i = 0; i < m_modes.size(); i += 1)
+	{
+		if (m_modes[i].name.empty())
+		{
+			labels.push_back("Mode " + std::to_string(m_modes[i].id));
+		}
+		else
+		{
+			labels.push_back(m_modes[i].name);
+		}
+
+		if (m_modes[i].id == m_mode)
+		{
+			current = (int)i;
+		}
+	}
+
+	ImGui::SetNextItemWidth(150.0f);
+
+	if (combo("##mode", &current, labels))
+	{
+		m_mode = m_modes[(std::size_t)current].id;
+	}
+}
+
+bool PDBehaviorEditor::drawToolbar()
+{
 	beginToolbar();
 
-	if (ImGui::Button("Back"))
-	{
-		back = true;
-	}
+	bool const back = ImGui::Button("Back");
 
 	if (m_modes.size() > 1)
 	{
 		ImGui::SameLine();
-		ImGui::SetNextItemWidth(150.0f);
-
-		std::vector<std::string> labels;
-		std::vector<char const*> items;
-		int current = 0;
-
-		for (std::size_t i = 0; i < m_modes.size(); i += 1)
-		{
-			char label[96];
-
-			if (m_modes[i].name.empty())
-			{
-				std::snprintf(label, sizeof(label), "Mode %d", m_modes[i].id);
-			}
-			else
-			{
-				std::snprintf(label, sizeof(label), "%s", m_modes[i].name.c_str());
-			}
-
-			labels.push_back(label);
-
-			if (m_modes[i].id == m_mode)
-			{
-				current = (int)i;
-			}
-		}
-
-		for (std::string const& label : labels)
-		{
-			items.push_back(label.c_str());
-		}
-
-		if (ImGui::Combo("##mode", &current, items.data(), (int)items.size()))
-		{
-			m_mode = m_modes[(std::size_t)current].id;
-		}
+		drawModeCombo();
 	}
 
 	ImGui::SameLine();
@@ -1407,24 +1422,15 @@ bool PDBehaviorEditor::draw()
 	toolbarSummary(summary);
 
 	endToolbar();
-	drawResetModal();
-	drawDeleteModal();
 
-	if (back)
-	{
-		return false;
-	}
+	return back;
+}
 
-	if (not m_status.empty())
-	{
-		ImGui::PushStyleColor(ImGuiCol_Text, PDTheme::Stop);
-		ImGui::TextWrapped("%s", m_status.c_str());
-		ImGui::PopStyleColor();
-		ImGui::Dummy(ImVec2(0.0f, 6.0f));
-	}
-
+void PDBehaviorEditor::drawBehaviorList()
+{
 	std::string const filter = toLower(m_search);
 	double const total = eligibleTotal(m_mode);
+
 	m_previewBudget = 6;
 
 	ImGui::BeginChild("behaviorList");
@@ -1449,6 +1455,29 @@ bool PDBehaviorEditor::draw()
 	}
 
 	ImGui::EndChild();
+}
+
+bool PDBehaviorEditor::draw()
+{
+	bool const back = drawToolbar();
+
+	drawResetModal();
+	drawDeleteModal();
+
+	if (back)
+	{
+		return false;
+	}
+
+	if (not m_status.empty())
+	{
+		ImGui::PushStyleColor(ImGuiCol_Text, PDTheme::Stop);
+		ImGui::TextWrapped("%s", m_status.c_str());
+		ImGui::PopStyleColor();
+		ImGui::Dummy(ImVec2(0.0f, 6.0f));
+	}
+
+	drawBehaviorList();
 
 	return true;
 }

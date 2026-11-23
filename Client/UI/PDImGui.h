@@ -50,6 +50,8 @@ private:
 	void destroyDevice();
 	bool createRenderTarget();
 	void destroyRenderTarget();
+	void loadFonts();
+	void destroyWindow();
 	void beginFrame();
 	void endFrame();
 

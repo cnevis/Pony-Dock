@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <cstdio>
 
-static BOOL CALLBACK collectMonitor(HMONITOR monitor, HDC, LPRECT, LPARAM payload)
+static BOOL CALLBACK collectMonitor(HMONITOR monitor, HDC, LPRECT, LPARAM param)
 {
 	MONITORINFOEXA info = {};
 	info.cbSize = sizeof(MONITORINFOEXA);
@@ -15,7 +15,7 @@ static BOOL CALLBACK collectMonitor(HMONITOR monitor, HDC, LPRECT, LPARAM payloa
 		return TRUE;
 	}
 
-	std::vector<PDMonitor>& monitors = *reinterpret_cast<std::vector<PDMonitor>*>(payload);
+	std::vector<PDMonitor>& monitors = *reinterpret_cast<std::vector<PDMonitor>*>(param);
 
 	PDMonitor entry;
 	entry.device = info.szDevice;

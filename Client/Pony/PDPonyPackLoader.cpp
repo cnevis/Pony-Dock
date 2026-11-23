@@ -235,6 +235,116 @@ static void readInteractions(nlohmann::json const& document, PDPonyPackData* dat
 	}
 }
 
+static void readAnimations(nlohmann::json const& document, std::filesystem::path const& folder, PDPonyPackData* data)
+{
+	nlohmann::json::const_iterator const animations = document.find("animations");
+
+	if (animations == document.end() or not animations->is_object())
+	{
+		return;
+	}
+
+	for (nlohmann::json::const_iterator it = animations->begin(); it != animations->end(); ++it)
+	{
+		if (not it.value().is_object())
+		{
+			continue;
+		}
+
+		PDPonyAnimationRef reference;
+		reference.left = absolutePath(folder, stringOr(it.value(), "left", std::string()));
+		reference.right = absolutePath(folder, stringOr(it.value(), "right", std::string()));
+
+		if (reference.left.empty() and reference.right.empty())
+		{
+			continue;
+		}
+
+		if (reference.left.empty())
+		{
+			reference.left = reference.right;
+		}
+
+		if (reference.right.empty())
+		{
+			reference.right = reference.left;
+		}
+
+		data->animations.emplace(it.key(), std::move(reference));
+	}
+}
+
+static PDPonyBehaviorData readBehavior(nlohmann::json const& entry)
+{
+	PDPonyBehaviorData behavior;
+	behavior.id = stringOr(entry, "id", std::string());
+	behavior.name = stringOr(entry, "name", behavior.id);
+	behavior.animation = stringOr(entry, "animation", std::string());
+	behavior.movement = stringOr(entry, "movement", "None");
+	behavior.linkedBehavior = stringOr(entry, "linkedBehavior", std::string());
+	behavior.chance = numberOr(entry, "chance", 0.0f);
+	behavior.speedPxPerSec = numberOr(entry, "speedPxPerSec", 0.0f);
+	behavior.group = intOr(entry, "group", 0);
+	behavior.special = boolOr(entry, "special", false);
+	behavior.skip = boolOr(entry, "skip", false);
+	behavior.preventAnimationLoop = boolOr(entry, "preventAnimationLoop", false);
+
+	nlohmann::json::const_iterator const duration = entry.find("durationMs");
+
+	if (duration != entry.end() and duration->is_object())
+	{
+		behavior.durationMinSeconds = numberOr(*duration, "min", 0.0f) / 1000.0f;
+		behavior.durationMaxSeconds = numberOr(*duration, "max", 0.0f) / 1000.0f;
+	}
+
+	if (behavior.durationMaxSeconds < behavior.durationMinSeconds)
+	{
+		behavior.durationMaxSeconds = behavior.durationMinSeconds;
+	}
+
+	nlohmann::json::const_iterator const follow = entry.find("follow");
+
+	if (follow != entry.end() and follow->is_object())
+	{
+		behavior.followTarget = packId(stringOr(*follow, "target", std::string()));
+		behavior.followMoving = stringOr(*follow, "movingBehavior", std::string());
+		behavior.followStopped = stringOr(*follow, "stoppedBehavior", std::string());
+		behavior.followOffsetX = numberOr(*follow, "offsetX", 0.0f);
+		behavior.followOffsetY = numberOr(*follow, "offsetY", 0.0f);
+		behavior.followMirror = boolOr(*follow, "mirrorOffset", false);
+		behavior.followAutoImages = boolOr(*follow, "autoSelectImages", true);
+	}
+
+	return behavior;
+}
+
+static void readBehaviors(nlohmann::json const& document, PDPonyPackData* data)
+{
+	nlohmann::json::const_iterator const behaviors = document.find("behaviors");
+
+	if (behaviors == document.end() or not behaviors->is_array())
+	{
+		return;
+	}
+
+	for (nlohmann::json const& entry : *behaviors)
+	{
+		if (not entry.is_object())
+		{
+			continue;
+		}
+
+		PDPonyBehaviorData behavior = readBehavior(entry);
+
+		if (behavior.animation.empty() or data->animations.find(behavior.animation) == data->animations.end())
+		{
+			continue;
+		}
+
+		data->behaviors.push_back(std::move(behavior));
+	}
+}
+
 bool loadPonyPack(std::string const& packPath, PDPonyPackData* result, std::string* error)
 {
 	assert(result != nullptr);
@@ -242,7 +352,7 @@ bool loadPonyPack(std::string const& packPath, PDPonyPackData* result, std::stri
 
 	*result = PDPonyPackData();
 
-	std::filesystem::path const root = nativePath(packPath);
+	std::filesystem::path const folder = nativePath(packPath);
 	std::filesystem::path const jsonPath = nativePath(ponyPackDocumentPath(packPath));
 
 	std::ifstream stream(jsonPath, std::ios::binary);
@@ -274,44 +384,12 @@ bool loadPonyPack(std::string const& packPath, PDPonyPackData* result, std::stri
 		return false;
 	}
 
-	result->packPath = pathString(root.lexically_normal());
-	result->id = stringOr(document, "id", pathString(root.filename()));
+	result->packPath = pathString(folder.lexically_normal());
+	result->id = stringOr(document, "id", pathString(folder.filename()));
 	result->name = stringOr(document, "name", result->id);
-	result->previewPath = absolutePath(root, stringOr(document, "preview", std::string()));
+	result->previewPath = absolutePath(folder, stringOr(document, "preview", std::string()));
 
-	nlohmann::json::const_iterator const animations = document.find("animations");
-
-	if (animations != document.end() and animations->is_object())
-	{
-		for (nlohmann::json::const_iterator it = animations->begin(); it != animations->end(); ++it)
-		{
-			if (not it.value().is_object())
-			{
-				continue;
-			}
-
-			PDPonyAnimationRef reference;
-			reference.left = absolutePath(root, stringOr(it.value(), "left", std::string()));
-			reference.right = absolutePath(root, stringOr(it.value(), "right", std::string()));
-
-			if (reference.left.empty() and reference.right.empty())
-			{
-				continue;
-			}
-
-			if (reference.left.empty())
-			{
-				reference.left = reference.right;
-			}
-
-			if (reference.right.empty())
-			{
-				reference.right = reference.left;
-			}
-
-			result->animations.emplace(it.key(), std::move(reference));
-		}
-	}
+	readAnimations(document, folder, result);
 
 	if (result->animations.empty())
 	{
@@ -320,64 +398,7 @@ bool loadPonyPack(std::string const& packPath, PDPonyPackData* result, std::stri
 		return false;
 	}
 
-	nlohmann::json::const_iterator const behaviors = document.find("behaviors");
-
-	if (behaviors != document.end() and behaviors->is_array())
-	{
-		for (nlohmann::json const& entry : *behaviors)
-		{
-			if (not entry.is_object())
-			{
-				continue;
-			}
-
-			PDPonyBehaviorData behavior;
-			behavior.id = stringOr(entry, "id", std::string());
-			behavior.name = stringOr(entry, "name", behavior.id);
-			behavior.animation = stringOr(entry, "animation", std::string());
-			behavior.movement = stringOr(entry, "movement", "None");
-			behavior.linkedBehavior = stringOr(entry, "linkedBehavior", std::string());
-			behavior.chance = numberOr(entry, "chance", 0.0f);
-			behavior.speedPxPerSec = numberOr(entry, "speedPxPerSec", 0.0f);
-			behavior.group = intOr(entry, "group", 0);
-			behavior.special = boolOr(entry, "special", false);
-			behavior.skip = boolOr(entry, "skip", false);
-			behavior.preventAnimationLoop = boolOr(entry, "preventAnimationLoop", false);
-
-			nlohmann::json::const_iterator const duration = entry.find("durationMs");
-
-			if (duration != entry.end() and duration->is_object())
-			{
-				behavior.durationMinSeconds = numberOr(*duration, "min", 0.0f) / 1000.0f;
-				behavior.durationMaxSeconds = numberOr(*duration, "max", 0.0f) / 1000.0f;
-			}
-
-			if (behavior.durationMaxSeconds < behavior.durationMinSeconds)
-			{
-				behavior.durationMaxSeconds = behavior.durationMinSeconds;
-			}
-
-			nlohmann::json::const_iterator const follow = entry.find("follow");
-
-			if (follow != entry.end() and follow->is_object())
-			{
-				behavior.followTarget = packId(stringOr(*follow, "target", std::string()));
-				behavior.followMoving = stringOr(*follow, "movingBehavior", std::string());
-				behavior.followStopped = stringOr(*follow, "stoppedBehavior", std::string());
-				behavior.followOffsetX = numberOr(*follow, "offsetX", 0.0f);
-				behavior.followOffsetY = numberOr(*follow, "offsetY", 0.0f);
-				behavior.followMirror = boolOr(*follow, "mirrorOffset", false);
-				behavior.followAutoImages = boolOr(*follow, "autoSelectImages", true);
-			}
-
-			if (behavior.animation.empty() or result->animations.find(behavior.animation) == result->animations.end())
-			{
-				continue;
-			}
-
-			result->behaviors.push_back(std::move(behavior));
-		}
-	}
+	readBehaviors(document, result);
 
 	if (result->behaviors.empty())
 	{

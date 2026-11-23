@@ -13,7 +13,7 @@ static std::filesystem::path executableDirectory()
 	return std::filesystem::path(buffer).parent_path();
 }
 
-std::string packsRoot()
+std::string packsDir()
 {
 	return pathString((executableDirectory() / "Packs").lexically_normal());
 }

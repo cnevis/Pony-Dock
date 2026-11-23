@@ -8,19 +8,23 @@
 #include <UI/PDTheme.h>
 #include <UI/PDWidgets.h>
 
-#include <windows.h>
-
 #include <imgui.h>
 #include <imgui_stdlib.h>
 
 #include <algorithm>
+#include <cassert>
 #include <cstddef>
 #include <cstdio>
 #include <utility>
 
-void PDMainWindow::addImageFitted(ImDrawList* drawList, PDTexture const* texture, ImVec2 areaMin, ImVec2 areaMax, float margin)
+void PDMainWindow::addFitImage(ImDrawList* drawList, PDTexture const* texture, ImVec2 areaMin, ImVec2 areaMax, float margin)
 {
-	if (texture == nullptr or not texture->valid() or texture->width() <= 0 or texture->height() <= 0)
+	if (texture == nullptr or not texture->valid())
+	{
+		return;
+	}
+
+	if (texture->width() <= 0 or texture->height() <= 0)
 	{
 		return;
 	}
@@ -67,13 +71,13 @@ void PDMainWindow::addShadow(ImDrawList* drawList, ImVec2 rectMin, ImVec2 rectMa
 	}
 }
 
-PDMainWindow::PDMainWindow(PDMainApplication& app, PDImGui& host, PDDiagnostics& diagnostics)
+PDMainWindow::PDMainWindow(PDMainApplication& app, PDImGui& imgui, PDDiagnostics& diagnostics)
 	: m_app(app),
-	  m_host(host),
+	  m_imgui(imgui),
 	  m_diagnostics(diagnostics),
-	  m_behaviorEditor(app, host, diagnostics)
+	  m_behaviorEditor(app, imgui, diagnostics)
 {
-	m_catalog.load(packsRoot());
+	m_catalog.load(packsDir());
 
 	for (PDPonyGroup const& group : m_catalog.groups())
 	{
@@ -217,8 +221,8 @@ void PDMainWindow::navItem(char const* label, View view)
 	ImVec2 const size(ImGui::GetContentRegionAvail().x, itemHeight);
 
 	ImGui::PushID((int)view);
-	bool const pressed = ImGui::InvisibleButton("nav", size);
-	bool const hovered = ImGui::IsItemHovered();
+	bool const press = ImGui::InvisibleButton("nav", size);
+	bool const hover = ImGui::IsItemHovered();
 	ImGui::PopID();
 
 	bool const active = m_activeView == view;
@@ -230,12 +234,12 @@ void PDMainWindow::navItem(char const* label, View view)
 		drawList->AddRectFilled(position, rectMax, ImGui::GetColorU32(PDTheme::AccentSoft), 0.0f);
 		drawList->AddRectFilled(position, ImVec2(position.x + 3.0f, rectMax.y), ImGui::GetColorU32(PDTheme::Accent), 0.0f);
 	}
-	else if (hovered)
+	else if (hover)
 	{
 		drawList->AddRectFilled(position, rectMax, ImGui::GetColorU32(PDTheme::SidebarHover), 0.0f);
 	}
 
-	ImVec4 const& textColor = active ? PDTheme::AccentText : (hovered ? PDTheme::White : PDTheme::TextDim);
+	ImVec4 const& textColor = active ? PDTheme::AccentText : (hover ? PDTheme::White : PDTheme::TextDim);
 	float const textY = position.y + (itemHeight - ImGui::GetTextLineHeight()) * 0.5f;
 	drawList->AddText(ImVec2(position.x + 16.0f, textY), ImGui::GetColorU32(textColor), label);
 
@@ -258,7 +262,7 @@ void PDMainWindow::navItem(char const* label, View view)
 		}
 	}
 
-	if (pressed)
+	if (press)
 	{
 		m_activeView = view;
 	}
@@ -363,7 +367,7 @@ void PDMainWindow::drawContent()
 
 void PDMainWindow::drawBrowserView()
 {
-	m_thumbnailBudget = 24;
+	m_thumbnailBudget = ThumbnailBudget;
 
 	beginToolbar();
 
@@ -375,10 +379,9 @@ void PDMainWindow::drawBrowserView()
 	ImGui::BeginChild("grid");
 
 	std::string const query = toLower(m_search);
-	std::vector<PDPonyGroup> const& groups = m_catalog.groups();
 	std::vector<std::size_t> visible;
 
-	for (std::size_t i = 0; i < groups.size(); i += 1)
+	for (std::size_t i = 0; i < m_catalog.groups().size(); i += 1)
 	{
 		if (query.empty() or m_searchNames[i].find(query) != std::string::npos)
 		{
@@ -413,42 +416,7 @@ void PDMainWindow::drawBrowserView()
 					ImGui::SameLine();
 				}
 
-				std::size_t const i = visible[slot];
-				PDPonyGroup const& group = groups[i];
-				std::string sub;
-
-				if (group.variants.size() > 1)
-				{
-					char buffer[32];
-					std::snprintf(buffer, sizeof(buffer), "%zu variants", group.variants.size());
-					sub = buffer;
-				}
-
-				ImGui::PushID((int)i);
-
-				PDCardInput const input = drawPonyCard(
-					group.displayName,
-					sub,
-					thumbnail(group.variants.front().previewPath),
-					m_selectedGroup == (int)i);
-
-				if (input.clicked)
-				{
-					m_selectedGroup = (int)i;
-				}
-
-				if (input.doubleClicked)
-				{
-					openGroup(i, VariantStage);
-				}
-
-				if (input.rightClicked)
-				{
-					m_selectedGroup = (int)i;
-					openGroup(i, VariantEdit);
-				}
-
-				ImGui::PopID();
+				drawGroupCard(visible[slot]);
 			}
 		}
 	}
@@ -459,14 +427,51 @@ void PDMainWindow::drawBrowserView()
 	drawVariantModal();
 }
 
-void PDMainWindow::openGroup(std::size_t index, int action)
+void PDMainWindow::drawGroupCard(std::size_t idx)
 {
-	PDPonyGroup const& group = m_catalog.groups()[index];
+	PDPonyGroup const& group = m_catalog.groups()[idx];
+	std::string sub;
+
+	if (group.variants.size() > 1)
+	{
+		sub = std::to_string(group.variants.size()) + " variants";
+	}
+
+	ImGui::PushID((int)idx);
+
+	PDCardInput const input = drawPonyCard(
+		group.displayName,
+		sub,
+		thumbnail(group.variants.front().previewPath),
+		m_selectedGroup == (int)idx);
+
+	if (input.click)
+	{
+		m_selectedGroup = (int)idx;
+	}
+
+	if (input.doubleClick)
+	{
+		openGroup(idx, VariantAction::Stage);
+	}
+
+	if (input.rightClick)
+	{
+		m_selectedGroup = (int)idx;
+		openGroup(idx, VariantAction::Edit);
+	}
+
+	ImGui::PopID();
+}
+
+void PDMainWindow::openGroup(std::size_t idx, VariantAction action)
+{
+	PDPonyGroup const& group = m_catalog.groups()[idx];
 	m_variantAction = action;
 
 	if (group.variants.size() > 1)
 	{
-		m_variantGroup = (int)index;
+		m_variantGroup = (int)idx;
 		m_variantOpen = true;
 
 		return;
@@ -477,7 +482,7 @@ void PDMainWindow::openGroup(std::size_t index, int action)
 
 void PDMainWindow::applyVariant(PDPonyGroup const& group, PDPonyPack const& variant)
 {
-	if (m_variantAction == VariantEdit)
+	if (m_variantAction == VariantAction::Edit)
 	{
 		openBehaviorEditor(variant.packPath, group.displayName);
 
@@ -512,7 +517,7 @@ PDCardInput PDMainWindow::drawPonyCard(
 	std::string const& name,
 	std::string const& sub,
 	PDTexture const* texture,
-	bool selected)
+	bool highlight)
 {
 	float const nameHeight = ImGui::GetTextLineHeight();
 
@@ -521,20 +526,20 @@ PDCardInput PDMainWindow::drawPonyCard(
 	ImVec2 const rectMax(position.x + size.x, position.y + size.y);
 
 	PDCardInput input;
-	input.clicked = ImGui::InvisibleButton("card", size);
+	input.click = ImGui::InvisibleButton("card", size);
 
-	bool const hovered = ImGui::IsItemHovered();
-	input.doubleClicked = hovered and ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
-	input.rightClicked = hovered and ImGui::IsMouseClicked(ImGuiMouseButton_Right);
+	bool const hover = ImGui::IsItemHovered();
+	input.doubleClick = hover and ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
+	input.rightClick = hover and ImGui::IsMouseClicked(ImGuiMouseButton_Right);
 
 	ImDrawList* drawList = ImGui::GetWindowDrawList();
-	drawList->AddRectFilled(position, rectMax, ImGui::GetColorU32(hovered ? PDTheme::CardBgHover : PDTheme::CardBg), 0.0f);
+	drawList->AddRectFilled(position, rectMax, ImGui::GetColorU32(hover ? PDTheme::CardBgHover : PDTheme::CardBg), 0.0f);
 
 	ImVec2 const thumbMin(position.x + CardPad, position.y + CardPad);
 	ImVec2 const thumbMax(rectMax.x - CardPad, position.y + CardPad + ThumbHeight);
 	drawList->AddRectFilled(thumbMin, thumbMax, ImGui::GetColorU32(PDTheme::ThumbBg), 0.0f);
 	drawList->AddRect(thumbMin, thumbMax, ImGui::GetColorU32(PDTheme::CardBorder), 0.0f, 0, 1.0f);
-	addImageFitted(drawList, texture, thumbMin, thumbMax, 6.0f);
+	addFitImage(drawList, texture, thumbMin, thumbMax, 6.0f);
 
 	drawList->AddText(ImVec2(position.x + CardPad + 2.0f, thumbMax.y + 7.0f), ImGui::GetColorU32(PDTheme::White), name.c_str());
 
@@ -543,7 +548,7 @@ PDCardInput PDMainWindow::drawPonyCard(
 		drawList->AddText(ImVec2(position.x + CardPad + 2.0f, thumbMax.y + 7.0f + nameHeight + 2.0f), ImGui::GetColorU32(PDTheme::TextFaint), sub.c_str());
 	}
 
-	drawList->AddRect(position, rectMax, ImGui::GetColorU32(selected ? PDTheme::Accent : PDTheme::CardBorder), 0.0f, 0, selected ? 2.0f : 1.0f);
+	drawList->AddRect(position, rectMax, ImGui::GetColorU32(highlight ? PDTheme::Accent : PDTheme::CardBorder), 0.0f, 0, highlight ? 2.0f : 1.0f);
 
 	return input;
 }
@@ -555,11 +560,11 @@ PDTexture* PDMainWindow::thumbnail(std::string const& path)
 		return nullptr;
 	}
 
-	std::unordered_map<std::string, PDTexture>::iterator const cached = m_thumbnails.find(path);
+	std::unordered_map<std::string, PDTexture>::iterator const it = m_thumbnails.find(path);
 
-	if (cached != m_thumbnails.end())
+	if (it != m_thumbnails.end())
 	{
-		return &cached->second;
+		return &it->second;
 	}
 
 	if (m_thumbnailBudget <= 0)
@@ -569,12 +574,12 @@ PDTexture* PDMainWindow::thumbnail(std::string const& path)
 
 	m_thumbnailBudget -= 1;
 
-	return &m_thumbnails.emplace(path, PDTexture(m_host.device(), path)).first->second;
+	return &m_thumbnails.emplace(path, PDTexture(m_imgui.device(), path)).first->second;
 }
 
 void PDMainWindow::drawSceneView()
 {
-	m_thumbnailBudget = 24;
+	m_thumbnailBudget = ThumbnailBudget;
 
 	beginToolbar();
 
@@ -612,103 +617,106 @@ void PDMainWindow::drawSceneView()
 
 	drawForceBar();
 
-	constexpr float rowHeight = 56.0f;
-	std::size_t removeIndex = m_scene.size();
+	std::size_t removeIdx = m_scene.size();
 
 	for (std::size_t i = 0; i < m_scene.size(); i += 1)
 	{
-		PDSceneEntry& entry = m_scene[i];
-
 		ImGui::PushID((int)i);
 
-		ImVec2 const rowMin = ImGui::GetCursorScreenPos();
-		ImVec2 const rowSize(ImGui::GetContentRegionAvail().x, rowHeight);
-		ImVec2 const rowMax(rowMin.x + rowSize.x, rowMin.y + rowSize.y);
-
-		ImDrawList* drawList = ImGui::GetWindowDrawList();
-		drawList->AddRectFilled(rowMin, rowMax, ImGui::GetColorU32(PDTheme::CardBg), 0.0f);
-		drawList->AddRect(rowMin, rowMax, ImGui::GetColorU32(PDTheme::CardBorder), 0.0f, 0, 1.0f);
-
-		ImVec2 const thumbMin(rowMin.x + 8.0f, rowMin.y + 8.0f);
-		ImVec2 const thumbMax(thumbMin.x + 40.0f, thumbMin.y + 40.0f);
-		drawList->AddRectFilled(thumbMin, thumbMax, ImGui::GetColorU32(PDTheme::ThumbBg), 0.0f);
-		drawList->AddRect(thumbMin, thumbMax, ImGui::GetColorU32(PDTheme::CardBorder), 0.0f, 0, 1.0f);
-		addImageFitted(drawList, thumbnail(entry.previewPath), thumbMin, thumbMax, 3.0f);
-
-		drawList->AddText(ImVec2(thumbMax.x + 12.0f, rowMin.y + (rowHeight - ImGui::GetTextLineHeight()) * 0.5f), ImGui::GetColorU32(PDTheme::White), entry.displayName.c_str());
-
-		float const stepperWidth = 24.0f + 32.0f + 24.0f;
-		float const editWidth = ImGui::CalcTextSize("Edit").x + 20.0f;
-		float const removeWidth = ImGui::CalcTextSize("Remove").x + 24.0f;
-		float const controlsWidth = stepperWidth + 10.0f + editWidth + 10.0f + removeWidth;
-
-		ImGui::SetCursorScreenPos(ImVec2(rowMax.x - controlsWidth - 10.0f, rowMin.y + (rowHeight - 24.0f) * 0.5f));
-
-		bool removed = false;
-
-		if (ImGui::Button("-", ImVec2(24.0f, 24.0f)))
+		if (drawSceneRow(&m_scene[i]))
 		{
-			if (entry.quantity > 1)
-			{
-				entry.quantity -= 1;
-				m_sceneDirty = true;
-			}
-			else
-			{
-				removed = true;
-			}
+			removeIdx = i;
 		}
-
-		ImGui::SameLine(0.0f, 0.0f);
-
-		char quantity[16];
-		std::snprintf(quantity, sizeof(quantity), "%d", entry.quantity);
-		float const quantityWidth = ImGui::CalcTextSize(quantity).x;
-		ImVec2 const quantityPos = ImGui::GetCursorScreenPos();
-		drawList->AddText(ImVec2(quantityPos.x + (32.0f - quantityWidth) * 0.5f, quantityPos.y + 4.0f), ImGui::GetColorU32(PDTheme::White), quantity);
-		ImGui::Dummy(ImVec2(32.0f, 24.0f));
-		ImGui::SameLine(0.0f, 0.0f);
-
-		if (ImGui::Button("+", ImVec2(24.0f, 24.0f)))
-		{
-			entry.quantity += 1;
-			m_sceneDirty = true;
-		}
-
-		ImGui::SameLine(0.0f, 10.0f);
-
-		if (ImGui::Button("Edit", ImVec2(editWidth, 24.0f)))
-		{
-			openBehaviorEditor(entry.packPath, entry.displayName);
-		}
-
-		if (ImGui::IsItemHovered())
-		{
-			ImGui::SetTooltip("Edit this pack's behaviors");
-		}
-
-		ImGui::SameLine(0.0f, 10.0f);
-
-		if (ImGui::Button("Remove", ImVec2(removeWidth, 24.0f)))
-		{
-			removed = true;
-		}
-
-		ImGui::SetCursorScreenPos(rowMin);
-		ImGui::Dummy(ImVec2(rowSize.x, rowHeight + 8.0f));
 
 		ImGui::PopID();
+	}
 
-		if (removed)
+	if (removeIdx < m_scene.size())
+	{
+		removeSceneEntry(removeIdx);
+	}
+}
+
+bool PDMainWindow::drawSceneRow(PDSceneEntry* entry)
+{
+	assert(entry != nullptr);
+
+	ImVec2 const rowMin = ImGui::GetCursorScreenPos();
+	ImVec2 const rowSize(ImGui::GetContentRegionAvail().x, SceneRowHeight);
+	ImVec2 const rowMax(rowMin.x + rowSize.x, rowMin.y + rowSize.y);
+
+	ImDrawList* drawList = ImGui::GetWindowDrawList();
+	drawList->AddRectFilled(rowMin, rowMax, ImGui::GetColorU32(PDTheme::CardBg), 0.0f);
+	drawList->AddRect(rowMin, rowMax, ImGui::GetColorU32(PDTheme::CardBorder), 0.0f, 0, 1.0f);
+
+	ImVec2 const thumbMin(rowMin.x + 8.0f, rowMin.y + 8.0f);
+	ImVec2 const thumbMax(thumbMin.x + 40.0f, thumbMin.y + 40.0f);
+	drawList->AddRectFilled(thumbMin, thumbMax, ImGui::GetColorU32(PDTheme::ThumbBg), 0.0f);
+	drawList->AddRect(thumbMin, thumbMax, ImGui::GetColorU32(PDTheme::CardBorder), 0.0f, 0, 1.0f);
+	addFitImage(drawList, thumbnail(entry->previewPath), thumbMin, thumbMax, 3.0f);
+
+	drawList->AddText(ImVec2(thumbMax.x + 12.0f, rowMin.y + (SceneRowHeight - ImGui::GetTextLineHeight()) * 0.5f), ImGui::GetColorU32(PDTheme::White), entry->displayName.c_str());
+
+	float const stepperWidth = 24.0f + 32.0f + 24.0f;
+	float const editWidth = ImGui::CalcTextSize("Edit").x + 20.0f;
+	float const removeWidth = ImGui::CalcTextSize("Remove").x + 24.0f;
+	float const controlsWidth = stepperWidth + 10.0f + editWidth + 10.0f + removeWidth;
+	bool drop = false;
+
+	ImGui::SetCursorScreenPos(ImVec2(rowMax.x - controlsWidth - 10.0f, rowMin.y + (SceneRowHeight - 24.0f) * 0.5f));
+
+	if (ImGui::Button("-", ImVec2(24.0f, 24.0f)))
+	{
+		if (entry->quantity > 1)
 		{
-			removeIndex = i;
+			entry->quantity -= 1;
+			m_sceneDirty = true;
+		}
+		else
+		{
+			drop = true;
 		}
 	}
 
-	if (removeIndex < m_scene.size())
+	ImGui::SameLine(0.0f, 0.0f);
+
+	char quantity[16];
+	std::snprintf(quantity, sizeof(quantity), "%d", entry->quantity);
+	float const quantityWidth = ImGui::CalcTextSize(quantity).x;
+	ImVec2 const quantityPos = ImGui::GetCursorScreenPos();
+	drawList->AddText(ImVec2(quantityPos.x + (32.0f - quantityWidth) * 0.5f, quantityPos.y + 4.0f), ImGui::GetColorU32(PDTheme::White), quantity);
+	ImGui::Dummy(ImVec2(32.0f, 24.0f));
+	ImGui::SameLine(0.0f, 0.0f);
+
+	if (ImGui::Button("+", ImVec2(24.0f, 24.0f)))
 	{
-		removeSceneEntry(removeIndex);
+		entry->quantity += 1;
+		m_sceneDirty = true;
 	}
+
+	ImGui::SameLine(0.0f, 10.0f);
+
+	if (ImGui::Button("Edit", ImVec2(editWidth, 24.0f)))
+	{
+		openBehaviorEditor(entry->packPath, entry->displayName);
+	}
+
+	if (ImGui::IsItemHovered())
+	{
+		ImGui::SetTooltip("Edit this pack's behaviors");
+	}
+
+	ImGui::SameLine(0.0f, 10.0f);
+
+	if (ImGui::Button("Remove", ImVec2(removeWidth, 24.0f)))
+	{
+		drop = true;
+	}
+
+	ImGui::SetCursorScreenPos(rowMin);
+	ImGui::Dummy(ImVec2(rowSize.x, SceneRowHeight + 8.0f));
+
+	return drop;
 }
 
 void PDMainWindow::addToScene(std::string const& displayName, PDPonyPack const& pack)
@@ -734,14 +742,14 @@ void PDMainWindow::addToScene(std::string const& displayName, PDPonyPack const& 
 	m_sceneDirty = true;
 }
 
-void PDMainWindow::removeSceneEntry(std::size_t index)
+void PDMainWindow::removeSceneEntry(std::size_t idx)
 {
-	if (index >= m_scene.size())
+	if (idx >= m_scene.size())
 	{
 		return;
 	}
 
-	m_scene.erase(m_scene.begin() + (std::ptrdiff_t)index);
+	m_scene.erase(m_scene.begin() + (std::ptrdiff_t)idx);
 	m_sceneDirty = true;
 }
 
@@ -791,18 +799,18 @@ void PDMainWindow::drawForceBar()
 void PDMainWindow::forceCombo(char const* label, std::string* id)
 {
 	std::string preview = label;
-	bool found = false;
+	bool match = false;
 
 	for (PDSceneEntry const& entry : m_scene)
 	{
 		if (entry.id == *id)
 		{
 			preview = entry.displayName;
-			found = true;
+			match = true;
 		}
 	}
 
-	if (not found)
+	if (not match)
 	{
 		id->clear();
 	}
@@ -895,7 +903,7 @@ void PDMainWindow::drawVariantModal()
 	}
 
 	PDPonyGroup const& group = groups[(std::size_t)m_variantGroup];
-	m_thumbnailBudget = 24;
+	m_thumbnailBudget = ThumbnailBudget;
 
 	ImGui::PushStyleColor(ImGuiCol_Text, PDTheme::TextDim);
 	ImGui::Text("%s ships %zu variants.", group.displayName.c_str(), group.variants.size());
@@ -906,10 +914,9 @@ void PDMainWindow::drawVariantModal()
 
 	float indent = 0.0f;
 	int const columns = gridColumns(ImGui::GetContentRegionAvail().x, &indent);
+	int pick = -1;
 
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(CardSpacing, CardSpacing));
-
-	int chosen = -1;
 
 	for (std::size_t i = 0; i < group.variants.size(); i += 1)
 	{
@@ -929,9 +936,9 @@ void PDMainWindow::drawVariantModal()
 
 		ImGui::PopID();
 
-		if (input.clicked)
+		if (input.click)
 		{
-			chosen = (int)i;
+			pick = (int)i;
 		}
 	}
 
@@ -944,9 +951,9 @@ void PDMainWindow::drawVariantModal()
 		ImGui::CloseCurrentPopup();
 	}
 
-	if (chosen >= 0)
+	if (pick >= 0)
 	{
-		applyVariant(group, group.variants[(std::size_t)chosen]);
+		applyVariant(group, group.variants[(std::size_t)pick]);
 		ImGui::CloseCurrentPopup();
 	}
 
@@ -982,15 +989,14 @@ void PDMainWindow::drawTargetModal()
 		return;
 	}
 
-	m_thumbnailBudget = 24;
+	m_thumbnailBudget = ThumbnailBudget;
 
 	ImGui::SetNextItemWidth(-1.0f);
 	ImGui::InputTextWithHint("##targetFilter", "Search packs", m_targetFilter, sizeof(m_targetFilter));
 	ImGui::Dummy(ImVec2(0.0f, 10.0f));
 
 	std::string const filter = toLower(m_targetFilter);
-	std::vector<std::string> const overridden = m_app.settings().packsWithOverrides();
-
+	std::vector<std::string> const overrides = m_app.settings().packsWithOverrides();
 	std::vector<int> visible;
 
 	if (filter.empty())
@@ -1010,12 +1016,10 @@ void PDMainWindow::drawTargetModal()
 
 	float indent = 0.0f;
 	int const columns = gridColumns(ImGui::GetContentRegionAvail().x, &indent);
+	bool pick = false;
+	int pickIdx = -1;
 
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(CardSpacing, CardSpacing));
-
-	bool chosen = false;
-	std::string chosenId;
-	std::string chosenLabel;
 
 	ImGuiListClipper clipper;
 	clipper.Begin(((int)visible.size() + columns - 1) / columns, cardHeight() + CardSpacing);
@@ -1042,38 +1046,10 @@ void PDMainWindow::drawTargetModal()
 					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + indent);
 				}
 
-				int const index = visible[slot];
-				ImGui::PushID(index);
-
-				PDCardInput input;
-
-				if (index < 0)
+				if (drawTargetCard(visible[slot], overrides))
 				{
-					input = drawPonyCard("Global defaults", "every pack", nullptr, m_settingsTarget.empty());
-				}
-				else
-				{
-					PDSettingTarget const& target = m_targets[(std::size_t)index];
-					bool const hasOverride = std::find(overridden.begin(), overridden.end(), target.id) != overridden.end();
-
-					input = drawPonyCard(
-						target.label,
-						hasOverride ? "overridden" : std::string(),
-						thumbnail(target.previewPath),
-						m_settingsTarget == target.id);
-				}
-
-				ImGui::PopID();
-
-				if (input.clicked)
-				{
-					chosen = true;
-
-					if (index >= 0)
-					{
-						chosenId = m_targets[(std::size_t)index].id;
-						chosenLabel = m_targets[(std::size_t)index].label;
-					}
+					pick = true;
+					pickIdx = visible[slot];
 				}
 			}
 		}
@@ -1096,14 +1072,48 @@ void PDMainWindow::drawTargetModal()
 		ImGui::CloseCurrentPopup();
 	}
 
-	if (chosen)
+	if (pick)
 	{
-		m_settingsTarget = chosenId;
-		m_settingsTargetLabel = chosenLabel;
+		m_settingsTarget.clear();
+		m_settingsTargetLabel.clear();
+
+		if (pickIdx >= 0)
+		{
+			m_settingsTarget = m_targets[(std::size_t)pickIdx].id;
+			m_settingsTargetLabel = m_targets[(std::size_t)pickIdx].label;
+		}
+
 		ImGui::CloseCurrentPopup();
 	}
 
 	endModal();
+}
+
+bool PDMainWindow::drawTargetCard(int idx, std::vector<std::string> const& overrides)
+{
+	PDCardInput input;
+
+	ImGui::PushID(idx);
+
+	if (idx < 0)
+	{
+		input = drawPonyCard("Global defaults", "every pack", nullptr, m_settingsTarget.empty());
+	}
+	else
+	{
+		PDSettingTarget const& target = m_targets[(std::size_t)idx];
+		bool const hasOverride = std::find(overrides.begin(), overrides.end(), target.id) != overrides.end();
+
+		input = drawPonyCard(
+			target.label,
+			hasOverride ? "overridden" : std::string(),
+			thumbnail(target.previewPath),
+			m_settingsTarget == target.id);
+	}
+
+	ImGui::PopID();
+
+	return input.click;
 }
 
 void PDMainWindow::drawFeaturesView()
@@ -1153,13 +1163,13 @@ void PDMainWindow::drawFeaturesView()
 	drawTargetModal();
 
 	PDSettings value = store.value(m_settingsTarget);
-	bool overridden = store.hasOverride(m_settingsTarget);
+	bool hasOverride = store.hasOverride(m_settingsTarget);
 
 	if (not m_settingsTarget.empty())
 	{
-		if (ImGui::Checkbox("Override global settings", &overridden))
+		if (ImGui::Checkbox("Override global settings", &hasOverride))
 		{
-			if (overridden)
+			if (hasOverride)
 			{
 				store.setValue(m_settingsTarget, value);
 			}
@@ -1176,19 +1186,19 @@ void PDMainWindow::drawFeaturesView()
 		}
 	}
 
-	ImGui::BeginDisabled(not m_settingsTarget.empty() and not overridden);
+	ImGui::BeginDisabled(not m_settingsTarget.empty() and not hasOverride);
 
-	bool changed = ImGui::Checkbox("Movement", &value.movement);
-	changed = ImGui::Checkbox("Flying", &value.flying) or changed;
-	changed = ImGui::Checkbox("Extended behaviors", &value.extended) or changed;
-	changed = ImGui::Checkbox("Linked behaviors", &value.linked) or changed;
-	changed = ImGui::Checkbox("Interactions", &value.interactions) or changed;
-	changed = ImGui::Checkbox("Cursor chasing", &value.chasing) or changed;
-	changed = ImGui::Checkbox("Dragging", &value.dragging) or changed;
-	changed = ImGui::Checkbox("Names on hover", &value.names) or changed;
+	bool change = ImGui::Checkbox("Movement", &value.movement);
+	change = ImGui::Checkbox("Flying", &value.flying) or change;
+	change = ImGui::Checkbox("Extended behaviors", &value.extended) or change;
+	change = ImGui::Checkbox("Linked behaviors", &value.linked) or change;
+	change = ImGui::Checkbox("Interactions", &value.interactions) or change;
+	change = ImGui::Checkbox("Cursor chasing", &value.chasing) or change;
+	change = ImGui::Checkbox("Dragging", &value.dragging) or change;
+	change = ImGui::Checkbox("Names on hover", &value.names) or change;
 
 	ImGui::SetNextItemWidth(190.0f);
-	changed = ImGui::SliderFloat("Speed", &value.speed, 0.1f, 4.0f, "%.2fx", ImGuiSliderFlags_AlwaysClamp) or changed;
+	change = ImGui::SliderFloat("Speed", &value.speed, 0.1f, 4.0f, "%.2fx", ImGuiSliderFlags_AlwaysClamp) or change;
 
 	char const* const positions[] = {"Anywhere", "Ground", "Center"};
 	int start = (int)value.start;
@@ -1197,12 +1207,12 @@ void PDMainWindow::drawFeaturesView()
 	if (ImGui::Combo("Spawn position", &start, positions, 3))
 	{
 		value.start = (PDSpawnPosition)start;
-		changed = true;
+		change = true;
 	}
 
 	ImGui::EndDisabled();
 
-	if (changed)
+	if (change)
 	{
 		store.setValue(m_settingsTarget, value);
 		m_featuresDirty = true;
@@ -1243,39 +1253,7 @@ void PDMainWindow::drawSettingsView()
 
 	for (PDMonitor const& monitor : m_monitors)
 	{
-		std::string const key = "monitor." + monitor.device;
-		bool walkable = store.appFlag(key, true);
-
-		ImVec2 const position = ImGui::GetCursorScreenPos();
-		ImVec2 const size(ImGui::GetContentRegionAvail().x, SettingRowHeight);
-		ImVec2 const rectMax(position.x + size.x, position.y + size.y);
-
-		ImDrawList* drawList = ImGui::GetWindowDrawList();
-		drawList->AddRectFilled(position, rectMax, ImGui::GetColorU32(PDTheme::CardBg), 0.0f);
-		drawList->AddRect(position, rectMax, ImGui::GetColorU32(PDTheme::CardBorder), 0.0f, 0, 1.0f);
-
-		float const lineHeight = ImGui::GetTextLineHeight();
-		float const firstY = position.y + (SettingRowHeight - lineHeight * 2.0f - 2.0f) * 0.5f;
-
-		char geometry[96];
-		std::snprintf(geometry, sizeof(geometry), "%s  at  %d, %d", monitor.device.c_str(), monitor.x, monitor.y);
-
-		drawList->AddText(ImVec2(position.x + RowPad, firstY), ImGui::GetColorU32(PDTheme::White), monitor.label.c_str());
-		drawList->AddText(ImVec2(position.x + RowPad, firstY + lineHeight + 2.0f), ImGui::GetColorU32(PDTheme::TextFaint), geometry);
-
-		float const controlHeight = ImGui::GetFrameHeight();
-		ImGui::SetCursorScreenPos(ImVec2(rectMax.x - RowPad - controlHeight, position.y + (SettingRowHeight - controlHeight) * 0.5f));
-		ImGui::PushID(monitor.device.c_str());
-
-		if (ImGui::Checkbox("##walkable", &walkable))
-		{
-			store.setAppFlag(key, walkable);
-			store.save();
-		}
-
-		ImGui::PopID();
-		ImGui::SetCursorScreenPos(position);
-		ImGui::Dummy(ImVec2(size.x, SettingRowHeight + 4.0f));
+		drawMonitorRow(monitor);
 	}
 
 	ImGui::Dummy(ImVec2(0.0f, 18.0f));
@@ -1314,16 +1292,54 @@ void PDMainWindow::drawSettingsView()
 	}
 }
 
+void PDMainWindow::drawMonitorRow(PDMonitor const& monitor)
+{
+	PDSettingsStore& store = m_app.settings();
+	std::string const key = "monitor." + monitor.device;
+	bool walkable = store.appFlag(key, true);
+
+	ImVec2 const position = ImGui::GetCursorScreenPos();
+	ImVec2 const size(ImGui::GetContentRegionAvail().x, SettingRowHeight);
+	ImVec2 const rectMax(position.x + size.x, position.y + size.y);
+
+	ImDrawList* drawList = ImGui::GetWindowDrawList();
+	drawList->AddRectFilled(position, rectMax, ImGui::GetColorU32(PDTheme::CardBg), 0.0f);
+	drawList->AddRect(position, rectMax, ImGui::GetColorU32(PDTheme::CardBorder), 0.0f, 0, 1.0f);
+
+	float const lineHeight = ImGui::GetTextLineHeight();
+	float const firstY = position.y + (SettingRowHeight - lineHeight * 2.0f - 2.0f) * 0.5f;
+
+	char geometry[96];
+	std::snprintf(geometry, sizeof(geometry), "%s  at  %d, %d", monitor.device.c_str(), monitor.x, monitor.y);
+
+	drawList->AddText(ImVec2(position.x + RowPad, firstY), ImGui::GetColorU32(PDTheme::White), monitor.label.c_str());
+	drawList->AddText(ImVec2(position.x + RowPad, firstY + lineHeight + 2.0f), ImGui::GetColorU32(PDTheme::TextFaint), geometry);
+
+	float const controlHeight = ImGui::GetFrameHeight();
+	ImGui::SetCursorScreenPos(ImVec2(rectMax.x - RowPad - controlHeight, position.y + (SettingRowHeight - controlHeight) * 0.5f));
+	ImGui::PushID(monitor.device.c_str());
+
+	if (ImGui::Checkbox("##walkable", &walkable))
+	{
+		store.setAppFlag(key, walkable);
+		store.save();
+	}
+
+	ImGui::PopID();
+	ImGui::SetCursorScreenPos(position);
+	ImGui::Dummy(ImVec2(size.x, SettingRowHeight + 4.0f));
+}
+
 void PDMainWindow::exportConfig()
 {
 	std::string path;
 
-	if (not saveFileDialog(m_host.handle(), "Export Pony Dock config", "pony-dock-config.json", &path))
+	if (not saveFileDialog(m_imgui.handle(), "Export Pony Dock config", "pony-dock-config.json", &path))
 	{
 		return;
 	}
 
-	m_configFailed = not m_app.settings().exportTo(path);
+	m_configFailed = not m_app.settings().exportFile(path);
 	m_configStatus = m_configFailed ? ("Could not write " + path) : ("Exported to " + path);
 	m_diagnostics.write(m_configStatus);
 }
@@ -1332,12 +1348,12 @@ void PDMainWindow::importConfig()
 {
 	std::string path;
 
-	if (not openFileDialog(m_host.handle(), "Import Pony Dock config", &path))
+	if (not openFileDialog(m_imgui.handle(), "Import Pony Dock config", &path))
 	{
 		return;
 	}
 
-	m_configFailed = not m_app.settings().importFrom(path);
+	m_configFailed = not m_app.settings().importFile(path);
 
 	if (not m_configFailed)
 	{

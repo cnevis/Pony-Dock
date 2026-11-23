@@ -49,13 +49,14 @@ private:
 	void runOverlay(HINSTANCE instance);
 	void handleMessage(UINT message, LPARAM lParam);
 	std::vector<PDRect> walkableRects() const;
+	PDRect overlayRect(PDMonitor const& monitor) const;
 	void applyPendingScene();
 	void applyPendingForces();
 	void applyPendingPacks();
 
 	PDDiagnostics m_diagnostics;
 	PDSettingsStore m_settings;
-	PDImGui m_host;
+	PDImGui m_imgui;
 	PDTrayIcon m_tray;
 	PDMainWindow m_mainWindow;
 

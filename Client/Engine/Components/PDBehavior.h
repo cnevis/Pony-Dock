@@ -14,7 +14,7 @@ enum class PDMotion
 
 struct PDBehavior
 {
-	std::size_t index = 0;
+	std::size_t idx = 0;
 	int group = 0;
 	int linkDepth = 0;
 	int monitor = -1;

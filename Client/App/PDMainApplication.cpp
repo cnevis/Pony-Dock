@@ -8,34 +8,34 @@
 #include <utility>
 
 PDMainApplication::PDMainApplication()
-	: m_mainWindow(*this, m_host, m_diagnostics)
+	: m_mainWindow(*this, m_imgui, m_diagnostics)
 {
 }
 
 int PDMainApplication::run(HINSTANCE instance)
 {
-	m_host.setFrameCallback([this]()
+	m_imgui.setFrameCallback([this]()
 	{
 		m_mainWindow.draw();
 	});
 
-	m_host.setMessageCallback([this](UINT message, LPARAM lParam)
+	m_imgui.setMessageCallback([this](UINT message, LPARAM lParam)
 	{
 		handleMessage(message, lParam);
 	});
 
 	HICON const icon = LoadIcon(instance, MAKEINTRESOURCE(IDI_APPICON));
 
-	if (not m_host.initialize(instance, "Pony Dock", 780, 600, icon, 610, 320))
+	if (not m_imgui.initialize(instance, "Pony Dock", 780, 600, icon, 610, 320))
 	{
 		return 1;
 	}
 
 	HICON const trayIcon = static_cast<HICON>(LoadImage(instance, MAKEINTRESOURCE(IDI_APPICON), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_SHARED));
 
-	if (m_tray.create(m_host.handle(), trayIcon))
+	if (m_tray.create(m_imgui.handle(), trayIcon))
 	{
-		m_host.setHideOnClose(true);
+		m_imgui.setHideOnClose(true);
 	}
 	else
 	{
@@ -52,16 +52,16 @@ int PDMainApplication::run(HINSTANCE instance)
 		runOverlay(instance);
 	});
 
-	while (m_host.pumpMessages())
+	while (m_imgui.pumpMessages())
 	{
-		if (not m_host.visible())
+		if (not m_imgui.visible())
 		{
 			WaitMessage();
 
 			continue;
 		}
 
-		m_host.renderFrame();
+		m_imgui.renderFrame();
 	}
 
 	m_overlayRunning = false;
@@ -72,7 +72,7 @@ int PDMainApplication::run(HINSTANCE instance)
 	}
 
 	m_settings.save();
-	m_host.shutdown();
+	m_imgui.shutdown();
 
 	return 0;
 }
@@ -167,12 +167,7 @@ std::vector<PDRect> PDMainApplication::walkableRects() const
 			continue;
 		}
 
-		PDRect rect;
-		rect.x = (float)(monitor.x - m_overlay.originX());
-		rect.y = (float)(monitor.y - m_overlay.originY());
-		rect.width = (float)monitor.width;
-		rect.height = (float)monitor.height;
-		rects.push_back(rect);
+		rects.push_back(overlayRect(monitor));
 	}
 
 	if (not rects.empty() or m_monitors.empty())
@@ -180,16 +175,20 @@ std::vector<PDRect> PDMainApplication::walkableRects() const
 		return rects;
 	}
 
-	PDMonitor const& fallback = m_monitors.front();
-
-	PDRect rect;
-	rect.x = (float)(fallback.x - m_overlay.originX());
-	rect.y = (float)(fallback.y - m_overlay.originY());
-	rect.width = (float)fallback.width;
-	rect.height = (float)fallback.height;
-	rects.push_back(rect);
+	rects.push_back(overlayRect(m_monitors.front()));
 
 	return rects;
+}
+
+PDRect PDMainApplication::overlayRect(PDMonitor const& monitor) const
+{
+	PDRect rect;
+	rect.x = (float)(monitor.x - m_overlay.originX());
+	rect.y = (float)(monitor.y - m_overlay.originY());
+	rect.width = (float)monitor.width;
+	rect.height = (float)monitor.height;
+
+	return rect;
 }
 
 void PDMainApplication::applyPendingScene()
@@ -308,7 +307,7 @@ void PDMainApplication::reloadPack(std::string const& packPath)
 
 void PDMainApplication::requestExit()
 {
-	m_host.close();
+	m_imgui.close();
 }
 
 void PDMainApplication::handleMessage(UINT message, LPARAM lParam)
@@ -324,7 +323,7 @@ void PDMainApplication::handleMessage(UINT message, LPARAM lParam)
 	{
 		case PDTrayCommand::Show:
 		{
-			m_host.show();
+			m_imgui.show();
 
 			break;
 		}

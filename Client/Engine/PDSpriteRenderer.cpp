@@ -29,55 +29,49 @@ static std::string_view const PixelShaderSource = R"(
 		}
 	)";
 
-bool PDSpriteRenderer::initialize(ID3D11Device* device)
+static ID3DBlob* compileShader(std::string_view source, char const* target)
 {
-	ID3DBlob* vertexBlob = nullptr;
-	ID3DBlob* pixelBlob = nullptr;
-	ID3DBlob* errorBlob = nullptr;
+	ID3DBlob* code = nullptr;
+	ID3DBlob* errors = nullptr;
 
-	HRESULT const vertexResult = D3DCompile(
-		VertexShaderSource.data(),
-		VertexShaderSource.size(),
+	HRESULT const hr = D3DCompile(
+		source.data(),
+		source.size(),
 		nullptr,
 		nullptr,
 		nullptr,
 		"main",
-		"vs_4_0",
+		target,
 		0,
 		0,
-		&vertexBlob,
-		&errorBlob);
+		&code,
+		&errors);
 
-	if (errorBlob != nullptr)
+	if (errors != nullptr)
 	{
-		errorBlob->Release();
-		errorBlob = nullptr;
+		errors->Release();
 	}
 
-	if (FAILED(vertexResult))
+	if (FAILED(hr))
+	{
+		return nullptr;
+	}
+
+	return code;
+}
+
+bool PDSpriteRenderer::initialize(ID3D11Device* device)
+{
+	ID3DBlob* vertexBlob = compileShader(VertexShaderSource, "vs_4_0");
+
+	if (vertexBlob == nullptr)
 	{
 		return false;
 	}
 
-	HRESULT const pixelResult = D3DCompile(
-		PixelShaderSource.data(),
-		PixelShaderSource.size(),
-		nullptr,
-		nullptr,
-		nullptr,
-		"main",
-		"ps_4_0",
-		0,
-		0,
-		&pixelBlob,
-		&errorBlob);
+	ID3DBlob* pixelBlob = compileShader(PixelShaderSource, "ps_4_0");
 
-	if (errorBlob != nullptr)
-	{
-		errorBlob->Release();
-	}
-
-	if (FAILED(pixelResult))
+	if (pixelBlob == nullptr)
 	{
 		vertexBlob->Release();
 
@@ -218,7 +212,7 @@ void PDSpriteRenderer::begin(ID3D11DeviceContext* context, int screenWidth, int 
 	m_batches.clear();
 
 	constexpr float blendFactor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-	context->OMSetBlendState(m_blendState, blendFactor, 0xffffffff);
+	context->OMSetBlendState(m_blendState, blendFactor, D3D11_DEFAULT_SAMPLE_MASK);
 	context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	context->IASetIndexBuffer(m_indexBuffer, DXGI_FORMAT_R16_UINT, 0);
 	context->IASetInputLayout(m_inputLayout);
@@ -289,7 +283,7 @@ void PDSpriteRenderer::flush()
 
 	if (m_context->Map(m_vertexBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped) == S_OK)
 	{
-		memcpy(mapped.pData, m_vertices.data(), m_vertices.size() * sizeof(PDVertex2D));
+		std::memcpy(mapped.pData, m_vertices.data(), m_vertices.size() * sizeof(PDVertex2D));
 		m_context->Unmap(m_vertexBuffer, 0);
 
 		for (Batch const& batch : m_batches)

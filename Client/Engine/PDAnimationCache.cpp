@@ -24,10 +24,10 @@ PDAnimationClip const* PDAnimationCache::clip(std::string const& animPath)
 		return existing->second.valid ? &existing->second : nullptr;
 	}
 
-	PDAnimationClip loaded;
+	PDAnimationClip clip;
 	std::string error;
 
-	if (not loadAnimationClip(key, &loaded, &error))
+	if (not loadAnimationClip(key, &clip, &error))
 	{
 		m_diagnostics->writeOnce(key, "Animation load failed: " + error);
 		m_clips.emplace(key, PDAnimationClip());
@@ -35,17 +35,17 @@ PDAnimationClip const* PDAnimationCache::clip(std::string const& animPath)
 		return nullptr;
 	}
 
-	loaded.atlas = m_textures->texture(loaded.atlasPath);
+	clip.atlas = m_textures->texture(clip.atlasPath);
 
-	if (loaded.atlas == nullptr or not loaded.atlas->valid())
+	if (clip.atlas == nullptr or not clip.atlas->valid())
 	{
-		m_diagnostics->writeOnce(key, "Atlas load failed: " + loaded.atlasPath);
+		m_diagnostics->writeOnce(key, "Atlas load failed: " + clip.atlasPath);
 		m_clips.emplace(key, PDAnimationClip());
 
 		return nullptr;
 	}
 
-	m_diagnostics->write("Loaded clip " + key + " (" + std::to_string(loaded.frames.size()) + " frames)");
+	m_diagnostics->write("Loaded clip " + key + " (" + std::to_string(clip.frames.size()) + " frames)");
 
-	return &m_clips.emplace(key, std::move(loaded)).first->second;
+	return &m_clips.emplace(key, std::move(clip)).first->second;
 }
